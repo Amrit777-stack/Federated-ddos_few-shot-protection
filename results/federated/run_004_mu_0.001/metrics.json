@@ -1,0 +1,22 @@
+{
+    "run": "run_004_mu_0.001",
+    "algorithm": "FedProx",
+    "clients": 5,
+    "number_of_clients": 5,
+    "rounds": 10,
+    "local_epochs": 1,
+    "learning_rate": 0.001,
+    "batch_size": 256,
+    "mu": 0.001,
+    "random_seed": 42,
+    "final_model": "model_G10.pth",
+    "test_samples": 18088,
+    "final_metrics": {
+        "round": 10,
+        "accuracy": 0.5801636444051305,
+        "precision": 0.6273526177820584,
+        "recall": 0.5801636444051305,
+        "f1": 0.5086395030502983,
+        "loss": 0.8272995352745056
+    }
+}
