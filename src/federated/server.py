@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
@@ -139,7 +140,11 @@ class FederatedServer:
         results_dir: Optional[Path] = None,
         run_name: Optional[str] = None,
         random_state: int = 42,
-        device: Optional[torch.device] = None
+        device: Optional[torch.device] = None,
+        num_classes: int = 13,
+        train_dataset: Optional[pd.DataFrame] = None,
+        test_data: Optional[Tuple[Any, Any]] = None,
+        encoder: Optional[Any] = None
     ):
         self.rounds = rounds
         self.local_epochs = local_epochs
@@ -153,6 +158,10 @@ class FederatedServer:
         self.results_dir = results_dir or (PROJECT_ROOT / "results" / "federated")
         self.run_name = run_name
         self.device = device or torch.device("cpu")
+        self.num_classes = num_classes
+        self.train_dataset = train_dataset
+        self.test_data = test_data
+        self.encoder = encoder
 
     def run(self) -> Dict[str, Any]:
         """
@@ -173,31 +182,40 @@ class FederatedServer:
         print(f"Algorithm: {self.algorithm}")
         if self.mu > 0.0:
             print(f"mu: {self.mu}")
+        print(f"Classes: {self.num_classes}")
         print("Clients: 5")
         print(f"Rounds: {self.rounds}")
         print(f"Local epochs: {self.local_epochs}")
         print()
 
         # 1. Load data pipeline
-        X_train, X_test, y_train, y_test, encoder, scaler = prepare_data()
-
-        # 2. Reconstruct train_dataset with string labels for partition_data
-        dataset = clean_dataset(load_dataset())
-        raw_labels = dataset.loc[X_train.index, "Label"]
-
-        train_dataset = X_train.copy()
-        train_dataset["Label"] = raw_labels
-
-        enterprises = partition_data(train_dataset, random_state=self.random_state)
-        is_valid = validate_partition(train_dataset, enterprises)
-        if not is_valid:
-            raise RuntimeError("Enterprise data partition validation failed!")
+        if self.train_dataset is not None:
+            train_dataset = self.train_dataset
+            if self.test_data is not None:
+                X_test, y_test = self.test_data
+            else:
+                X_test, y_test = None, None
+            encoder = self.encoder
+            enterprises = partition_data(train_dataset, random_state=self.random_state)
+            is_valid = validate_partition(train_dataset, enterprises)
+            if not is_valid:
+                raise RuntimeError("Enterprise data partition validation failed!")
+        else:
+            X_train, X_test, y_train, y_test, encoder, scaler = prepare_data()
+            dataset = clean_dataset(load_dataset())
+            raw_labels = dataset.loc[X_train.index, "Label"]
+            train_dataset = X_train.copy()
+            train_dataset["Label"] = raw_labels
+            enterprises = partition_data(train_dataset, random_state=self.random_state)
+            is_valid = validate_partition(train_dataset, enterprises)
+            if not is_valid:
+                raise RuntimeError("Enterprise data partition validation failed!")
 
         # 3. Create fresh randomly initialized global model G0
-        print("Initializing fresh global model: G0")
+        print(f"Initializing fresh global model: G0 ({self.num_classes} classes)")
         torch.manual_seed(self.random_state)
         np.random.seed(self.random_state)
-        global_model = DDoSModel().to(self.device)
+        global_model = DDoSModel(num_classes=self.num_classes).to(self.device)
 
         # 4. Prepare clients and local data
         enterprise_keys = [f"enterprise_{i}" for i in range(1, 6)]
@@ -207,7 +225,8 @@ class FederatedServer:
                 learning_rate=self.learning_rate,
                 batch_size=self.batch_size,
                 mu=self.mu,
-                device=self.device
+                device=self.device,
+                num_classes=self.num_classes
             )
             for k in enterprise_keys
         }
@@ -217,7 +236,7 @@ class FederatedServer:
         for k in enterprise_keys:
             df = enterprises[k]
             X_loc = df.drop(columns=["Label"])
-            y_loc = encoder.transform(df["Label"])
+            y_loc = encoder.transform(df["Label"]) if encoder is not None else df["Label"].values
             local_data[k] = (X_loc, y_loc)
 
         round_history: List[Dict[str, Any]] = []
@@ -260,16 +279,20 @@ class FederatedServer:
             print()
             print(f"{self.algorithm} completed -> G{r}")
 
-            # Evaluate global model on untouched 18,088-sample test set
-            eval_metrics = evaluate_global_model(
-                global_model,
-                X_test,
-                y_test,
-                device=self.device
-            )
-
-            print(f"Global Test Accuracy: {eval_metrics['accuracy']:.4f}")
-            print(f"Global Test F1:       {eval_metrics['f1']:.4f}")
+            # Evaluate global model
+            if X_test is not None and y_test is not None:
+                eval_metrics = evaluate_global_model(
+                    global_model,
+                    X_test,
+                    y_test,
+                    device=self.device
+                )
+                print(f"Global Test Accuracy: {eval_metrics['accuracy']:.4f}")
+                print(f"Global Test F1:       {eval_metrics['f1']:.4f}")
+            else:
+                eval_metrics = {
+                    "accuracy": 0.0, "precision": 0.0, "recall": 0.0, "f1": 0.0, "loss": 0.0
+                }
 
             round_entry = {
                 "round": r,
@@ -310,7 +333,7 @@ class FederatedServer:
             "mu": self.mu,
             "random_seed": self.random_state,
             "final_model": f"model_G{self.rounds}.pth",
-            "test_samples": len(X_test),
+            "test_samples": len(X_test) if X_test is not None else 0,
             "final_metrics": final_metrics
         }
         with open(run_dir / "metrics.json", "w", encoding="utf-8") as f:
@@ -340,7 +363,11 @@ def run_federated_learning(
     local_epochs: int = 1,
     mu: float = 0.0,
     algorithm: str = "fedavg",
-    run_name: Optional[str] = None
+    run_name: Optional[str] = None,
+    num_classes: int = 13,
+    train_dataset: Optional[pd.DataFrame] = None,
+    test_data: Optional[Tuple[Any, Any]] = None,
+    encoder: Optional[Any] = None
 ) -> Dict[str, Any]:
     """Convenience function to run federated learning with specified parameters."""
     server = FederatedServer(
@@ -348,7 +375,11 @@ def run_federated_learning(
         local_epochs=local_epochs,
         mu=mu,
         algorithm=algorithm,
-        run_name=run_name
+        run_name=run_name,
+        num_classes=num_classes,
+        train_dataset=train_dataset,
+        test_data=test_data,
+        encoder=encoder
     )
     return server.run()
 

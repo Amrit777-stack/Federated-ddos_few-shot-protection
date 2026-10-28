@@ -1,0 +1,22 @@
+{
+    "run": "heldout_all12/ntp",
+    "algorithm": "FedProx",
+    "clients": 5,
+    "number_of_clients": 5,
+    "rounds": 20,
+    "local_epochs": 1,
+    "learning_rate": 0.001,
+    "batch_size": 256,
+    "mu": 0.1,
+    "random_seed": 42,
+    "final_model": "model_G20.pth",
+    "test_samples": 16588,
+    "final_metrics": {
+        "round": 20,
+        "accuracy": 0.6572823727996142,
+        "precision": 0.6985625302767401,
+        "recall": 0.6572823727996142,
+        "f1": 0.6055396711179926,
+        "loss": 0.6890535354614258
+    }
+}

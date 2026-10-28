@@ -25,13 +25,15 @@ class FederatedClient:
         learning_rate: float = 0.001,
         batch_size: int = 256,
         mu: float = 0.0,
-        device: Optional[Union[str, torch.device]] = None
+        device: Optional[Union[str, torch.device]] = None,
+        num_classes: int = 13
     ):
         self.client_id = client_id or "client"
         self.learning_rate = learning_rate
         self.batch_size = batch_size
         self.mu = mu
         self.device = device or torch.device("cpu")
+        self.num_classes = num_classes
 
     def train(
         self,
@@ -62,7 +64,12 @@ class FederatedClient:
         effective_mu = self.mu if mu is None else mu
 
         # 1. Instantiate local model and initialize with current global state
-        local_model = DDoSModel().to(self.device)
+        out_classes = (
+            global_state_dict["network.6.weight"].shape[0]
+            if "network.6.weight" in global_state_dict
+            else self.num_classes
+        )
+        local_model = DDoSModel(num_classes=out_classes).to(self.device)
         local_model.load_state_dict(copy.deepcopy(global_state_dict))
         local_model.train()
 

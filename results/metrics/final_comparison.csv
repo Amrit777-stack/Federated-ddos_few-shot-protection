@@ -1,0 +1,5 @@
+Approach,Accuracy,Weighted F1,Role,Notes
+Centralized Random Forest,87.11%,86.96%,Reference baseline,"Trained on all 72,351 training samples, evaluated on 18,088 test samples"
+Centralized Neural Network,75.55%,unavailable,Centralized comparison,10 epochs centralized Adam lr=0.001; exact weighted F1 not recorded in separate JSON
+Vanilla FedAvg,57.42%,49.69%,Federated baseline,"10 rounds, 5 enterprise clients, 1 local epoch, non-IID partition"
+FedProx μ=0.1,72.69%,70.55%,Best federated model,"20 rounds, 5 enterprise clients, 1 local epoch, μ=0.1 proximal regularization"

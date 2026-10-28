@@ -1,0 +1,426 @@
+{
+  "input_feature_count": 81,
+  "num_classes": 13,
+  "classes": [
+    "BENIGN",
+    "DrDoS_DNS",
+    "DrDoS_LDAP",
+    "DrDoS_MSSQL",
+    "DrDoS_NTP",
+    "DrDoS_NetBIOS",
+    "DrDoS_SNMP",
+    "DrDoS_SSDP",
+    "DrDoS_UDP",
+    "Syn",
+    "TFTP",
+    "UDP-lag",
+    "WebDDoS"
+  ],
+  "features": [
+    {
+      "index": 0,
+      "name": "Source Port",
+      "type": "float32"
+    },
+    {
+      "index": 1,
+      "name": "Destination Port",
+      "type": "float32"
+    },
+    {
+      "index": 2,
+      "name": "Protocol",
+      "type": "float32"
+    },
+    {
+      "index": 3,
+      "name": "Flow Duration",
+      "type": "float32"
+    },
+    {
+      "index": 4,
+      "name": "Total Fwd Packets",
+      "type": "float32"
+    },
+    {
+      "index": 5,
+      "name": "Total Backward Packets",
+      "type": "float32"
+    },
+    {
+      "index": 6,
+      "name": "Total Length of Fwd Packets",
+      "type": "float32"
+    },
+    {
+      "index": 7,
+      "name": "Total Length of Bwd Packets",
+      "type": "float32"
+    },
+    {
+      "index": 8,
+      "name": "Fwd Packet Length Max",
+      "type": "float32"
+    },
+    {
+      "index": 9,
+      "name": "Fwd Packet Length Min",
+      "type": "float32"
+    },
+    {
+      "index": 10,
+      "name": "Fwd Packet Length Mean",
+      "type": "float32"
+    },
+    {
+      "index": 11,
+      "name": "Fwd Packet Length Std",
+      "type": "float32"
+    },
+    {
+      "index": 12,
+      "name": "Bwd Packet Length Max",
+      "type": "float32"
+    },
+    {
+      "index": 13,
+      "name": "Bwd Packet Length Min",
+      "type": "float32"
+    },
+    {
+      "index": 14,
+      "name": "Bwd Packet Length Mean",
+      "type": "float32"
+    },
+    {
+      "index": 15,
+      "name": "Bwd Packet Length Std",
+      "type": "float32"
+    },
+    {
+      "index": 16,
+      "name": "Flow Bytes/s",
+      "type": "float32"
+    },
+    {
+      "index": 17,
+      "name": "Flow Packets/s",
+      "type": "float32"
+    },
+    {
+      "index": 18,
+      "name": "Flow IAT Mean",
+      "type": "float32"
+    },
+    {
+      "index": 19,
+      "name": "Flow IAT Std",
+      "type": "float32"
+    },
+    {
+      "index": 20,
+      "name": "Flow IAT Max",
+      "type": "float32"
+    },
+    {
+      "index": 21,
+      "name": "Flow IAT Min",
+      "type": "float32"
+    },
+    {
+      "index": 22,
+      "name": "Fwd IAT Total",
+      "type": "float32"
+    },
+    {
+      "index": 23,
+      "name": "Fwd IAT Mean",
+      "type": "float32"
+    },
+    {
+      "index": 24,
+      "name": "Fwd IAT Std",
+      "type": "float32"
+    },
+    {
+      "index": 25,
+      "name": "Fwd IAT Max",
+      "type": "float32"
+    },
+    {
+      "index": 26,
+      "name": "Fwd IAT Min",
+      "type": "float32"
+    },
+    {
+      "index": 27,
+      "name": "Bwd IAT Total",
+      "type": "float32"
+    },
+    {
+      "index": 28,
+      "name": "Bwd IAT Mean",
+      "type": "float32"
+    },
+    {
+      "index": 29,
+      "name": "Bwd IAT Std",
+      "type": "float32"
+    },
+    {
+      "index": 30,
+      "name": "Bwd IAT Max",
+      "type": "float32"
+    },
+    {
+      "index": 31,
+      "name": "Bwd IAT Min",
+      "type": "float32"
+    },
+    {
+      "index": 32,
+      "name": "Fwd PSH Flags",
+      "type": "float32"
+    },
+    {
+      "index": 33,
+      "name": "Bwd PSH Flags",
+      "type": "float32"
+    },
+    {
+      "index": 34,
+      "name": "Fwd URG Flags",
+      "type": "float32"
+    },
+    {
+      "index": 35,
+      "name": "Bwd URG Flags",
+      "type": "float32"
+    },
+    {
+      "index": 36,
+      "name": "Fwd Header Length",
+      "type": "float32"
+    },
+    {
+      "index": 37,
+      "name": "Bwd Header Length",
+      "type": "float32"
+    },
+    {
+      "index": 38,
+      "name": "Fwd Packets/s",
+      "type": "float32"
+    },
+    {
+      "index": 39,
+      "name": "Bwd Packets/s",
+      "type": "float32"
+    },
+    {
+      "index": 40,
+      "name": "Min Packet Length",
+      "type": "float32"
+    },
+    {
+      "index": 41,
+      "name": "Max Packet Length",
+      "type": "float32"
+    },
+    {
+      "index": 42,
+      "name": "Packet Length Mean",
+      "type": "float32"
+    },
+    {
+      "index": 43,
+      "name": "Packet Length Std",
+      "type": "float32"
+    },
+    {
+      "index": 44,
+      "name": "Packet Length Variance",
+      "type": "float32"
+    },
+    {
+      "index": 45,
+      "name": "FIN Flag Count",
+      "type": "float32"
+    },
+    {
+      "index": 46,
+      "name": "SYN Flag Count",
+      "type": "float32"
+    },
+    {
+      "index": 47,
+      "name": "RST Flag Count",
+      "type": "float32"
+    },
+    {
+      "index": 48,
+      "name": "PSH Flag Count",
+      "type": "float32"
+    },
+    {
+      "index": 49,
+      "name": "ACK Flag Count",
+      "type": "float32"
+    },
+    {
+      "index": 50,
+      "name": "URG Flag Count",
+      "type": "float32"
+    },
+    {
+      "index": 51,
+      "name": "CWE Flag Count",
+      "type": "float32"
+    },
+    {
+      "index": 52,
+      "name": "ECE Flag Count",
+      "type": "float32"
+    },
+    {
+      "index": 53,
+      "name": "Down/Up Ratio",
+      "type": "float32"
+    },
+    {
+      "index": 54,
+      "name": "Average Packet Size",
+      "type": "float32"
+    },
+    {
+      "index": 55,
+      "name": "Avg Fwd Segment Size",
+      "type": "float32"
+    },
+    {
+      "index": 56,
+      "name": "Avg Bwd Segment Size",
+      "type": "float32"
+    },
+    {
+      "index": 57,
+      "name": "Fwd Header Length.1",
+      "type": "float32"
+    },
+    {
+      "index": 58,
+      "name": "Fwd Avg Bytes/Bulk",
+      "type": "float32"
+    },
+    {
+      "index": 59,
+      "name": "Fwd Avg Packets/Bulk",
+      "type": "float32"
+    },
+    {
+      "index": 60,
+      "name": "Fwd Avg Bulk Rate",
+      "type": "float32"
+    },
+    {
+      "index": 61,
+      "name": "Bwd Avg Bytes/Bulk",
+      "type": "float32"
+    },
+    {
+      "index": 62,
+      "name": "Bwd Avg Packets/Bulk",
+      "type": "float32"
+    },
+    {
+      "index": 63,
+      "name": "Bwd Avg Bulk Rate",
+      "type": "float32"
+    },
+    {
+      "index": 64,
+      "name": "Subflow Fwd Packets",
+      "type": "float32"
+    },
+    {
+      "index": 65,
+      "name": "Subflow Fwd Bytes",
+      "type": "float32"
+    },
+    {
+      "index": 66,
+      "name": "Subflow Bwd Packets",
+      "type": "float32"
+    },
+    {
+      "index": 67,
+      "name": "Subflow Bwd Bytes",
+      "type": "float32"
+    },
+    {
+      "index": 68,
+      "name": "Init_Win_bytes_forward",
+      "type": "float32"
+    },
+    {
+      "index": 69,
+      "name": "Init_Win_bytes_backward",
+      "type": "float32"
+    },
+    {
+      "index": 70,
+      "name": "act_data_pkt_fwd",
+      "type": "float32"
+    },
+    {
+      "index": 71,
+      "name": "min_seg_size_forward",
+      "type": "float32"
+    },
+    {
+      "index": 72,
+      "name": "Active Mean",
+      "type": "float32"
+    },
+    {
+      "index": 73,
+      "name": "Active Std",
+      "type": "float32"
+    },
+    {
+      "index": 74,
+      "name": "Active Max",
+      "type": "float32"
+    },
+    {
+      "index": 75,
+      "name": "Active Min",
+      "type": "float32"
+    },
+    {
+      "index": 76,
+      "name": "Idle Mean",
+      "type": "float32"
+    },
+    {
+      "index": 77,
+      "name": "Idle Std",
+      "type": "float32"
+    },
+    {
+      "index": 78,
+      "name": "Idle Max",
+      "type": "float32"
+    },
+    {
+      "index": 79,
+      "name": "Idle Min",
+      "type": "float32"
+    },
+    {
+      "index": 80,
+      "name": "Inbound",
+      "type": "float32"
+    }
+  ]
+}

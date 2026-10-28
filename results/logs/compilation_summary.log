@@ -1,0 +1,36 @@
+================================================================================
+PROJECT EXPERIMENTAL RESULTS COMPILATION LOG
+Timestamp: 2026-10-23 01:30:50
+================================================================================
+
+1. FINAL MAIN EXPERIMENTS COMPARISON TABLE:
+                  Approach Accuracy Weighted F1                   Role                                                                                Notes
+ Centralized Random Forest   87.11%      86.96%     Reference baseline             Trained on all 72,351 training samples, evaluated on 18,088 test samples
+Centralized Neural Network   75.55% unavailable Centralized comparison 10 epochs centralized Adam lr=0.001; exact weighted F1 not recorded in separate JSON
+            Vanilla FedAvg   57.42%      49.69%     Federated baseline                    10 rounds, 5 enterprise clients, 1 local epoch, non-IID partition
+             FedProx μ=0.1   72.69%      70.55%   Best federated model        20 rounds, 5 enterprise clients, 1 local epoch, μ=0.1 proximal regularization
+
+2. FEDERATED LEARNING HIGHLIGHTS:
+   Vanilla FedAvg (10 rounds): Accuracy=57.42%, F1=49.69%
+   FedProx mu=0.1 (10 rounds): Accuracy=68.03%, F1=63.55%
+   FedProx mu=0.1 (20 rounds): Accuracy=72.69%, F1=70.55%
+
+3. FEW-SHOT UNSEEN-ATTACK GENERALIZATION HIGHLIGHTS:
+   Target Unseen Attacks: DrDoS_UDP, DrDoS_SNMP, DrDoS_NetBIOS
+   Overall Average F1 (1-NN):      93.89%
+   Overall Average F1 (Prototype): 92.79%
+   Best Overall Configuration:     1-NN 50-shot (Avg F1: 94.41%, Avg Recall: 96.98%, Avg FPR: 8.69%)
+
+4. ARTIFACTS VERIFIED AND COMPILED:
+   - Metrics: C:\Users\amrit\Documents\Federated-Ddos protection\results\metrics\final_comparison.csv
+   - Metrics: C:\Users\amrit\Documents\Federated-Ddos protection\results\metrics\few_shot_cross_attack.csv
+   - Metrics: C:\Users\amrit\Documents\Federated-Ddos protection\results\metrics\few_shot_summary_by_method.csv
+   - Metrics: C:\Users\amrit\Documents\Federated-Ddos protection\results\metrics\fedprox_round_history.csv
+   - Plots:   C:\Users\amrit\Documents\Federated-Ddos protection\results\plots\centralized_vs_federated_accuracy.png
+   - Plots:   C:\Users\amrit\Documents\Federated-Ddos protection\results\plots\centralized_vs_federated_f1.png
+   - Plots:   C:\Users\amrit\Documents\Federated-Ddos protection\results\plots\fedavg_vs_fedprox.png
+   - Plots:   C:\Users\amrit\Documents\Federated-Ddos protection\results\plots\fedprox_round_progress.png
+   - Plots:   C:\Users\amrit\Documents\Federated-Ddos protection\results\plots\few_shot_cross_attack_f1.png
+   - Plots:   C:\Users\amrit\Documents\Federated-Ddos protection\results\plots\few_shot_cross_attack_recall.png
+   - Plots:   C:\Users\amrit\Documents\Federated-Ddos protection\results\plots\prototype_vs_1nn.png
+================================================================================
