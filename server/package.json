@@ -1,0 +1,16 @@
+{
+  "name": "sentinel-fl-server",
+  "version": "1.0.0",
+  "description": "Express API for SENTINEL-FL Federated DDoS SOC Dashboard",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  }
+}
+

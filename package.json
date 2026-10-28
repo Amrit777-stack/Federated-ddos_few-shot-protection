@@ -1,0 +1,15 @@
+{
+  "name": "sentinel-fl",
+  "version": "1.0.0",
+  "description": "SENTINEL-FL: Federated DDoS Defense & Few-Shot Unseen Attack Detection SOC Dashboard",
+  "scripts": {
+    "ml": ".\\venv\\Scripts\\python.exe ml_service/app.py",
+    "server": "npm --prefix server start",
+    "server:dev": "npm --prefix server run dev",
+    "frontend": "npm --prefix frontend run dev",
+    "frontend:build": "npm --prefix frontend run build",
+    "dev": "npm --prefix server run dev",
+    "start": "node server/server.js"
+  }
+}
+

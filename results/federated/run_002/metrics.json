@@ -1,0 +1,18 @@
+{
+    "run": "run_002",
+    "clients": 5,
+    "rounds": 10,
+    "local_epochs": 3,
+    "learning_rate": 0.001,
+    "batch_size": 256,
+    "final_model": "model_G10.pth",
+    "test_samples": 18088,
+    "final_metrics": {
+        "round": 10,
+        "accuracy": 0.5609796550199027,
+        "precision": 0.64317420723128,
+        "recall": 0.5609796550199027,
+        "f1": 0.469273954945234,
+        "loss": 0.8065024614334106
+    }
+}
