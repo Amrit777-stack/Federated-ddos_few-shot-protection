@@ -646,7 +646,7 @@ module.exports = {
         category: 'Volumetric Reflection Flood',
         severity: 'HIGH',
         confidence: 0.968,
-        status: 'ACTION REQUIRED',
+        status: 'RESOLVED',
         tier: 'Tier 2 (Zero-Day 50-Shot Cache)',
         trafficMetrics: {
           flowDuration: 1204892,
@@ -659,7 +659,7 @@ module.exports = {
           'Rate-limit UDP reflection amplification vectors',
           'Block spoofed UDP sources via BCP 38 filtering'
         ],
-        mitigationStatus: 'ACTION_REQUIRED',
+        mitigationStatus: 'RESTORED',
         isSimulated: true
       },
       {
@@ -671,7 +671,7 @@ module.exports = {
         category: 'Reflection Amplification',
         severity: 'CRITICAL',
         confidence: 0.989,
-        status: 'ACTION REQUIRED',
+        status: 'RESOLVED',
         tier: 'Tier 2 (Zero-Day 50-Shot Cache)',
         trafficMetrics: {
           flowDuration: 840210,
@@ -684,7 +684,7 @@ module.exports = {
           'Isolate public SNMP community string reflectors',
           'Enforce edge rate-limiting rules'
         ],
-        mitigationStatus: 'ACTION_REQUIRED',
+        mitigationStatus: 'RESTORED',
         isSimulated: true
       },
       {
@@ -696,7 +696,7 @@ module.exports = {
         category: 'Name Service Reflection',
         severity: 'MEDIUM',
         confidence: 0.906,
-        status: 'MITIGATED · SIMULATION',
+        status: 'RESOLVED',
         tier: 'Tier 2 (Zero-Day 50-Shot Cache)',
         trafficMetrics: {
           flowDuration: 2309100,
@@ -709,7 +709,7 @@ module.exports = {
           'Block inbound NetBIOS ports (137/138/139) at perimeter edge',
           'Update few-shot support exemplar cache'
         ],
-        mitigationStatus: 'MITIGATION_SIMULATED',
+        mitigationStatus: 'RESTORED',
         mitigatedAt: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
         isSimulated: true
       },
@@ -722,7 +722,7 @@ module.exports = {
         category: 'Known Vector - Recursive DNS Flood',
         severity: 'HIGH',
         confidence: 0.892,
-        status: 'MITIGATED · SIMULATION',
+        status: 'RESOLVED',
         tier: 'Tier 1 (Global 12-Class Head)',
         trafficMetrics: {
           flowDuration: 450120,
@@ -735,7 +735,7 @@ module.exports = {
           'Drop non-whitelisted ANY and large TXT query floods',
           'Enforce source-IP validation on upstream transit links'
         ],
-        mitigationStatus: 'MITIGATION_SIMULATED',
+        mitigationStatus: 'RESTORED',
         mitigatedAt: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
         isSimulated: true
       },
@@ -748,7 +748,7 @@ module.exports = {
         category: 'Known Vector - TCP SYN Flood',
         severity: 'CRITICAL',
         confidence: 0.941,
-        status: 'MITIGATED · SIMULATION',
+        status: 'RESOLVED',
         tier: 'Tier 1 (Global 12-Class Head)',
         trafficMetrics: {
           flowDuration: 994000,
@@ -761,7 +761,7 @@ module.exports = {
           'Enforce half-open connection limits',
           'Block spoofed source ranges'
         ],
-        mitigationStatus: 'MITIGATION_SIMULATED',
+        mitigationStatus: 'RESTORED',
         mitigatedAt: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
         isSimulated: true
       }
