@@ -1,7 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Network, Server, RotateCw, ShieldCheck, BarChart2, Info, Power } from 'lucide-react';
 import EnterpriseCard from '../components/EnterpriseCard';
-import { fetchEnterprises, toggleEnterpriseStatus } from '../services/api';
+import { 
+  fetchEnterprises, 
+  fetchAlerts, 
+  toggleEnterpriseStatus, 
+  getOfflineEnterprises, 
+  getEnterpriseSecurityState 
+} from '../services/api';
 import { 
   BarChart, 
   Bar, 
@@ -17,37 +23,59 @@ export default function EnterprisePage() {
   const [enterprises, setEnterprises] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        setLoading(true);
-        const res = await fetchEnterprises();
-        setEnterprises(res.enterprises || []);
-      } catch (err) {
-        console.error('Failed to load enterprises:', err);
-      } finally {
-        setLoading(false);
-      }
+  const loadData = useCallback(async () => {
+    try {
+      const [entRes, alertsRes] = await Promise.all([
+        fetchEnterprises().catch(() => ({ enterprises: [] })),
+        fetchAlerts().catch(() => ({ alerts: [] }))
+      ]);
+
+      const offlineIds = getOfflineEnterprises();
+      const rawEnterprises = entRes.enterprises || [];
+      const alerts = alertsRes.alerts || [];
+
+      const enriched = rawEnterprises.map(e => {
+        const normId = e.id.replace(/\D/g, '');
+        const isOffline = offlineIds.includes(normId) || offlineIds.includes(`E${normId}`) || e.isOffline;
+        const secState = getEnterpriseSecurityState(normId, alerts, isOffline);
+        return {
+          ...e,
+          status: secState.status,
+          health: secState.health,
+          anomalyScore: secState.status === 'UNDER ATTACK' ? 0.88 : secState.status === 'MITIGATED' ? 0.35 : e.anomalyScore,
+          activeThreat: secState.activeThreat,
+          isOffline
+        };
+      });
+
+      setEnterprises(enriched);
+    } catch (err) {
+      console.error('Failed to load enterprises:', err);
     }
-    load();
   }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    loadData().finally(() => setLoading(false));
+
+    const interval = setInterval(loadData, 2500);
+    const handleStorage = (e) => {
+      if (e.key === 'sentinel_alert_overrides' || e.key === 'sentinel_offline_enterprises') {
+        loadData();
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, [loadData]);
 
   const handleToggleStatus = async (enterpriseId) => {
     try {
-      const res = await toggleEnterpriseStatus(enterpriseId);
-      setEnterprises(prev => prev.map(e => {
-        const norm = e.id.replace(/\D/g, '');
-        const targetNorm = enterpriseId.replace(/\D/g, '');
-        if (norm === targetNorm) {
-          const isOff = res.isOffline;
-          return {
-            ...e,
-            status: isOff ? 'OFFLINE' : 'ONLINE',
-            isOffline: isOff
-          };
-        }
-        return e;
-      }));
+      await toggleEnterpriseStatus(enterpriseId);
+      await loadData();
     } catch (err) {
       console.error('Failed to toggle enterprise status:', err);
     }
@@ -64,6 +92,8 @@ export default function EnterprisePage() {
 
   const onlineCount = enterprises.filter(e => !e.isOffline && e.status !== 'OFFLINE').length;
   const offlineCount = enterprises.length - onlineCount;
+  const underAttackCount = enterprises.filter(e => e.status === 'UNDER ATTACK' || e.status === 'UNDER_ATTACK').length;
+  const mitigatedCount = enterprises.filter(e => e.status === 'MITIGATED' || e.status === 'MITIGATED · SIMULATION').length;
 
   // Prepare chart data for client sizes
   const chartData = enterprises.map(e => ({
@@ -91,10 +121,22 @@ export default function EnterprisePage() {
           </p>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="px-2.5 py-1 rounded-sm bg-[#181818] border border-[#262626] text-[#EDEDED] font-sans text-xs font-medium">
             {onlineCount}/5 Clients Online
           </span>
+          {underAttackCount > 0 && (
+            <span className="px-2.5 py-1 rounded-sm bg-red-950/40 border border-red-700/50 text-red-300 font-sans text-xs font-medium flex items-center space-x-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-live-pulse" />
+              <span>{underAttackCount} Under Attack</span>
+            </span>
+          )}
+          {mitigatedCount > 0 && (
+            <span className="px-2.5 py-1 rounded-sm bg-amber-950/40 border border-amber-700/50 text-amber-300 font-sans text-xs font-medium flex items-center space-x-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+              <span>{mitigatedCount} Mitigated (Sim)</span>
+            </span>
+          )}
           {offlineCount > 0 ? (
             <span className="px-2.5 py-1 rounded-sm bg-[#161616] border border-[#262626] text-[#737373] font-sans text-xs font-medium flex items-center space-x-1">
               <Power className="w-3 h-3 text-[#525252]" />

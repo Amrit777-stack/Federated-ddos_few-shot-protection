@@ -12,8 +12,15 @@ export default function StatusBadge({ status, label, size = 'sm' }) {
       bg: 'bg-red-950/40',
       border: 'border-red-700/60',
       text: 'text-red-200',
-      dot: 'bg-red-500',
+      dot: 'bg-red-500 animate-live-pulse',
       defaultLabel: 'Action Required'
+    },
+    UNDER_ATTACK: {
+      bg: 'bg-red-950/40',
+      border: 'border-red-700/60',
+      text: 'text-red-200',
+      dot: 'bg-red-500 animate-live-pulse',
+      defaultLabel: 'Under Attack'
     },
     ATTACK_DETECTED: {
       bg: 'bg-red-950/40',
@@ -44,18 +51,18 @@ export default function StatusBadge({ status, label, size = 'sm' }) {
       defaultLabel: 'Critical'
     },
     MITIGATED_SIMULATION: {
-      bg: 'bg-emerald-950/30',
-      border: 'border-emerald-700/50',
-      text: 'text-emerald-300',
-      dot: 'bg-emerald-400',
+      bg: 'bg-orange-950/40',
+      border: 'border-orange-700/60',
+      text: 'text-orange-300',
+      dot: 'bg-orange-400',
       defaultLabel: 'Mitigated · Sim'
     },
     MITIGATED: {
-      bg: 'bg-emerald-950/30',
-      border: 'border-emerald-700/50',
-      text: 'text-emerald-300',
-      dot: 'bg-emerald-400',
-      defaultLabel: 'Mitigated'
+      bg: 'bg-orange-950/40',
+      border: 'border-orange-700/60',
+      text: 'text-orange-300',
+      dot: 'bg-orange-400',
+      defaultLabel: 'Mitigated · Sim'
     },
     RESOLVED: {
       bg: 'bg-emerald-950/30',

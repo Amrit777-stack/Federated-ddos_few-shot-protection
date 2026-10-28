@@ -20,9 +20,17 @@ export default function ThreatMap({ nodes = [], onSelectNode, selectedNodeId }) 
 
   const totalUnderAttack = displayNodes.filter(n => 
     (n.status === 'ATTACK DETECTED' || 
+     n.status === 'UNDER ATTACK' || 
+     n.status === 'UNDER_ATTACK' || 
      n.status === 'CRITICAL' || 
      n.status === 'HIGH_ALERT' || 
      n.status === 'ALERT') &&
+    n.status !== 'OFFLINE' &&
+    !n.isOffline
+  ).length;
+
+  const totalMitigated = displayNodes.filter(n =>
+    (n.status === 'MITIGATED' || n.status === 'MITIGATED · SIMULATION') &&
     n.status !== 'OFFLINE' &&
     !n.isOffline
   ).length;
@@ -48,21 +56,32 @@ export default function ThreatMap({ nodes = [], onSelectNode, selectedNodeId }) 
         <div className="flex items-center space-x-2 text-[11px] font-sans">
           <span className="text-[#737373]">Federation:</span>
           <span className={`px-2 py-0.5 rounded-sm font-medium flex items-center space-x-1 ${
-            totalUnderAttack === 0
-              ? 'bg-emerald-950/40 border border-emerald-700/40 text-emerald-300'
-              : 'bg-red-950/50 border border-red-700/50 text-red-300'
+            totalUnderAttack > 0
+              ? 'bg-red-950/50 border border-red-700/50 text-red-300'
+              : totalMitigated > 0
+              ? 'bg-orange-950/40 border border-orange-700/50 text-orange-300'
+              : 'bg-emerald-950/40 border border-emerald-700/40 text-emerald-300'
           }`}>
-            {totalUnderAttack === 0 ? (
+            {totalUnderAttack > 0 ? (
+              <>
+                <AlertTriangle className="w-3 h-3 text-red-400 inline mr-1" />
+                <span>
+                  {totalUnderAttack} Under Attack {totalMitigated > 0 ? `• ${totalMitigated} Mitigated` : ''} • {onlineCount - totalUnderAttack - totalMitigated} Clean
+                </span>
+              </>
+            ) : totalMitigated > 0 ? (
+              <>
+                <Shield className="w-3 h-3 text-orange-400 inline mr-1" />
+                <span>
+                  {totalMitigated} Mitigated · Sim • {onlineCount - totalMitigated} Clean
+                </span>
+              </>
+            ) : (
               <>
                 <CheckCircle2 className="w-3 h-3 text-emerald-400 inline mr-1" />
                 <span>
                   {onlineCount}/5 Clients Online {totalOffline > 0 ? `(${totalOffline} Offline)` : '(Clean)'}
                 </span>
-              </>
-            ) : (
-              <>
-                <AlertTriangle className="w-3 h-3 text-red-400 inline mr-1" />
-                <span>{onlineCount - totalUnderAttack}/{onlineCount} Clean • {totalUnderAttack} Under Attack</span>
               </>
             )}
           </span>
@@ -96,7 +115,8 @@ export default function ThreatMap({ nodes = [], onSelectNode, selectedNodeId }) 
           {displayNodes.map((node, idx) => {
             const xPos = xCoords[idx] || `${10 + idx * 20}%`;
             const isOffline = node.status === 'OFFLINE' || node.isOffline;
-            const isAttack = !isOffline && (node.status === 'ATTACK DETECTED' || node.status === 'CRITICAL' || node.status === 'HIGH_ALERT' || node.status === 'ALERT');
+            const isAttack = !isOffline && (node.status === 'UNDER ATTACK' || node.status === 'UNDER_ATTACK' || node.status === 'ATTACK DETECTED' || node.status === 'CRITICAL' || node.status === 'HIGH_ALERT' || node.status === 'ALERT');
+            const isMitigated = !isOffline && !isAttack && (node.status === 'MITIGATED' || node.status === 'MITIGATED · SIMULATION');
             const isLive = !isOffline && node.isLiveTarget;
 
             return (
@@ -107,10 +127,10 @@ export default function ThreatMap({ nodes = [], onSelectNode, selectedNodeId }) 
                   y1="48"
                   x2={xPos}
                   y2="185"
-                  stroke={isOffline ? '#262626' : isAttack ? '#EF4444' : isLive ? '#FB923C' : '#EA580C'}
-                  strokeOpacity={isOffline ? 0.25 : isAttack ? 0.8 : isLive ? 0.7 : 0.35}
-                  strokeWidth={isAttack ? 2 : 1.25}
-                  strokeDasharray={isOffline ? '4 4' : isAttack ? '3 2' : undefined}
+                  stroke={isOffline ? '#262626' : isAttack ? '#EF4444' : isMitigated ? '#F97316' : isLive ? '#FB923C' : '#EA580C'}
+                  strokeOpacity={isOffline ? 0.25 : isAttack ? 0.8 : isMitigated ? 0.65 : isLive ? 0.7 : 0.35}
+                  strokeWidth={isAttack ? 2 : isMitigated ? 1.5 : 1.25}
+                  strokeDasharray={isOffline ? '4 4' : isAttack ? '3 2' : isMitigated ? '4 2' : undefined}
                 />
 
                 {/* Subtle Animated Data-Flow Pulse (Communicates Model/Telemetry Flow) */}
@@ -120,9 +140,9 @@ export default function ThreatMap({ nodes = [], onSelectNode, selectedNodeId }) 
                     y1="48"
                     x2={xPos}
                     y2="185"
-                    stroke={isAttack ? '#EF4444' : '#F97316'}
-                    strokeOpacity={isAttack ? 0.7 : 0.45}
-                    strokeWidth={isAttack ? 2 : 1.25}
+                    stroke={isAttack ? '#EF4444' : isMitigated ? '#F97316' : '#F97316'}
+                    strokeOpacity={isAttack ? 0.7 : isMitigated ? 0.6 : 0.45}
+                    strokeWidth={isAttack ? 2 : isMitigated ? 1.5 : 1.25}
                     strokeDasharray="3 14"
                     strokeLinecap="round"
                     className={isAttack ? 'animate-flow-attack' : 'animate-flow-normal'}
@@ -140,7 +160,8 @@ export default function ThreatMap({ nodes = [], onSelectNode, selectedNodeId }) 
           {displayNodes.map((node) => {
             const isSelected = selectedNodeId === node.id;
             const isOffline = node.status === 'OFFLINE' || node.isOffline;
-            const isUnderAttack = !isOffline && (node.status === 'ATTACK DETECTED' || node.status === 'CRITICAL' || node.status === 'HIGH_ALERT' || node.status === 'ALERT');
+            const isUnderAttack = !isOffline && (node.status === 'UNDER ATTACK' || node.status === 'UNDER_ATTACK' || node.status === 'ATTACK DETECTED' || node.status === 'CRITICAL' || node.status === 'HIGH_ALERT' || node.status === 'ALERT');
+            const isMitigated = !isOffline && !isUnderAttack && (node.status === 'MITIGATED' || node.status === 'MITIGATED · SIMULATION');
             const isLiveTarget = !isOffline && node.isLiveTarget;
 
             return (
@@ -156,14 +177,16 @@ export default function ThreatMap({ nodes = [], onSelectNode, selectedNodeId }) 
                     ? 'bg-[#0D0D0D] border-[#1F1F1F] text-[#525252] hover:border-[#2E2E2E]'
                     : isUnderAttack
                     ? 'bg-red-950/20 border-red-600/70 shadow-[0_0_10px_-2px_rgba(239,68,68,0.3)] hover:border-red-500 hover:bg-red-950/30'
+                    : isMitigated
+                    ? 'bg-orange-950/20 border-orange-600/70 shadow-[0_0_10px_-2px_rgba(249,115,22,0.3)] hover:border-orange-500 hover:bg-orange-950/30'
                     : isLiveTarget
                     ? 'bg-[#1E1915] border-orange-400/70 hover:border-orange-400'
                     : 'bg-[#181818] border-[#262626] hover:border-orange-500/40 hover:-translate-y-[1px]'
                 }`}
               >
                 <div className="flex items-center justify-center space-x-1 mb-1">
-                  <Server className={`w-3 h-3 ${isOffline ? 'text-[#525252]' : isUnderAttack ? 'text-red-400' : 'text-orange-400'}`} />
-                  <span className={`text-xs font-mono font-bold ${isOffline ? 'text-[#525252]' : isUnderAttack ? 'text-red-200' : 'text-[#EDEDED]'}`}>
+                  <Server className={`w-3 h-3 ${isOffline ? 'text-[#525252]' : isUnderAttack ? 'text-red-400' : isMitigated ? 'text-orange-400' : 'text-orange-400'}`} />
+                  <span className={`text-xs font-mono font-bold ${isOffline ? 'text-[#525252]' : isUnderAttack ? 'text-red-200' : isMitigated ? 'text-orange-200' : 'text-[#EDEDED]'}`}>
                     {node.id}
                   </span>
                 </div>
@@ -184,9 +207,13 @@ export default function ThreatMap({ nodes = [], onSelectNode, selectedNodeId }) 
                   <div className="mt-1 text-[9px] font-mono text-[#525252] truncate">
                     Ingress Suppressed
                   </div>
-                ) : node.activeThreat ? (
+                ) : isUnderAttack && node.activeThreat ? (
                   <div className="mt-1 text-[9px] font-mono text-red-400 truncate font-semibold" title={node.activeThreat}>
                     {node.activeThreat}
+                  </div>
+                ) : isMitigated ? (
+                  <div className="mt-1 text-[9px] font-mono text-orange-400 truncate font-semibold">
+                    {node.activeThreat ? `Mitigated · ${node.activeThreat}` : 'Mitigated · Sim'}
                   </div>
                 ) : (
                   <div className="mt-1 text-[9px] font-mono text-[#737373] truncate">
@@ -205,11 +232,20 @@ export default function ThreatMap({ nodes = [], onSelectNode, selectedNodeId }) 
           <span className="font-medium text-[#A3A3A3]">Participation:</span>
           {displayNodes.map((n, i) => {
             const isOff = n.status === 'OFFLINE' || n.isOffline;
-            const isAttack = !isOff && (n.status === 'ATTACK DETECTED' || n.status === 'CRITICAL' || n.status === 'HIGH_ALERT' || n.status === 'ALERT');
+            const isAttack = !isOff && (n.status === 'UNDER ATTACK' || n.status === 'UNDER_ATTACK' || n.status === 'ATTACK DETECTED' || n.status === 'CRITICAL' || n.status === 'HIGH_ALERT' || n.status === 'ALERT');
+            const isMitigated = !isOff && !isAttack && (n.status === 'MITIGATED' || n.status === 'MITIGATED · SIMULATION');
             return (
               <React.Fragment key={n.id}>
                 {i > 0 && <span className="text-[#333333]">•</span>}
-                <span className={`font-mono ${isOff ? 'text-[#525252] line-through' : isAttack ? 'text-red-400 font-semibold' : 'text-[#EDEDED]'}`}>
+                <span className={`font-mono ${
+                  isOff 
+                    ? 'text-[#525252] line-through' 
+                    : isAttack 
+                    ? 'text-red-400 font-semibold' 
+                    : isMitigated
+                    ? 'text-orange-400 font-semibold'
+                    : 'text-[#EDEDED]'
+                }`}>
                   {n.id} ({n.samples ? (n.samples / 1000).toFixed(1) + 'k' : ''})
                 </span>
               </React.Fragment>

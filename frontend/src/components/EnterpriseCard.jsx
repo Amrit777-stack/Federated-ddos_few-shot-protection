@@ -17,15 +17,29 @@ export default function EnterpriseCard({ enterprise, onToggleStatus }) {
   } = enterprise;
 
   const isOffline = propIsOffline || status === 'OFFLINE';
-  const isAlert = !isOffline && (status === 'ALERT' || status === 'HIGH_ALERT' || status === 'ATTACK DETECTED' || status === 'CRITICAL');
+  const isUnderAttack = !isOffline && (
+    status === 'UNDER ATTACK' || 
+    status === 'UNDER_ATTACK' || 
+    status === 'ALERT' || 
+    status === 'HIGH_ALERT' || 
+    status === 'ATTACK DETECTED' || 
+    status === 'CRITICAL'
+  );
+  const isMitigated = !isOffline && (
+    status === 'MITIGATED' || 
+    status === 'MITIGATED · SIMULATION' || 
+    status === 'MITIGATED_SIMULATION'
+  );
 
   return (
     <div
       className={`p-4 sm:p-5 rounded-sm border flex flex-col justify-between transition-all duration-200 ${
         isOffline
           ? 'bg-[#0D0D0D] border-[#1F1F1F] opacity-90'
-          : isAlert
+          : isUnderAttack
           ? 'bg-[#141414] border-red-600/70 hover:border-red-500'
+          : isMitigated
+          ? 'bg-[#141414] border-amber-600/60 hover:border-amber-500'
           : 'bg-[#141414] border-[#262626] hover:border-[#383838]'
       }`}
     >
@@ -36,11 +50,13 @@ export default function EnterpriseCard({ enterprise, onToggleStatus }) {
             <div className={`p-2 rounded-sm border ${
               isOffline
                 ? 'bg-[#181818] border-[#262626] text-[#525252]'
-                : isAlert 
+                : isUnderAttack 
                 ? 'bg-red-950/40 border-red-800/60 text-red-400' 
+                : isMitigated
+                ? 'bg-amber-950/40 border-amber-800/60 text-amber-400'
                 : 'bg-orange-950/30 border-orange-700/40 text-orange-400'
             }`}>
-              <Server className={`w-4 h-4 ${isOffline ? 'text-[#525252]' : isAlert ? 'text-red-400' : 'text-orange-400'}`} />
+              <Server className={`w-4 h-4 ${isOffline ? 'text-[#525252]' : isUnderAttack ? 'text-red-400' : isMitigated ? 'text-amber-400' : 'text-orange-400'}`} />
             </div>
             <div>
               <h4 className={`text-sm font-semibold font-sans tracking-tight ${isOffline ? 'text-[#737373]' : 'text-[#EDEDED]'}`}>
@@ -82,6 +98,22 @@ export default function EnterpriseCard({ enterprise, onToggleStatus }) {
           </div>
         )}
 
+        {/* Under Attack Notice Banner */}
+        {isUnderAttack && (
+          <div className="mb-3 p-2 rounded-sm bg-red-950/30 border border-red-800/50 text-red-200 text-[11px] font-sans flex items-center space-x-1.5">
+            <span className="w-2 h-2 rounded-full bg-red-500 animate-live-pulse flex-shrink-0" />
+            <span>Partition is UNDER ATTACK: Active anomalous ingress detected.</span>
+          </div>
+        )}
+
+        {/* Mitigated Notice Banner */}
+        {isMitigated && (
+          <div className="mb-3 p-2 rounded-sm bg-amber-950/30 border border-amber-800/50 text-amber-200 text-[11px] font-sans flex items-center space-x-1.5">
+            <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
+            <span>Mitigation Simulated: Protective ACLs active (simulated).</span>
+          </div>
+        )}
+
         {/* Description */}
         <p className="text-xs text-[#A3A3A3] font-sans mb-4 leading-relaxed">
           {description}
@@ -107,7 +139,7 @@ export default function EnterpriseCard({ enterprise, onToggleStatus }) {
 
           <div>
             <span className="text-[#737373] font-sans text-[11px] font-medium block">Anomaly Score</span>
-            <span className={`text-sm font-mono font-semibold ${isOffline ? 'text-[#525252]' : anomalyScore > 0.5 ? 'text-red-400' : 'text-[#EDEDED]'}`}>
+            <span className={`text-sm font-mono font-semibold ${isOffline ? 'text-[#525252]' : isUnderAttack ? 'text-red-400' : isMitigated ? 'text-amber-400' : 'text-[#EDEDED]'}`}>
               {isOffline ? '0.0%' : `${(anomalyScore * 100).toFixed(1)}%`}
             </span>
           </div>

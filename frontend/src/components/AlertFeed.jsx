@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { ShieldAlert, ArrowUpRight, AlertCircle } from 'lucide-react';
 import StatusBadge from './StatusBadge';
-import { isAlertMitigated } from '../services/api';
+import { isAlertActive, isAlertMitigated, isAlertResolved } from '../services/api';
 import { formatEventTime, formatFullDateTime } from '../utils/time';
 
 export default function AlertFeed({ alerts = [], onSelectAlert, onViewAll }) {
@@ -44,8 +44,13 @@ export default function AlertFeed({ alerts = [], onSelectAlert, onViewAll }) {
           </div>
         ) : (
           alerts.slice(0, 5).map((alert) => {
-            const isMitigated = isAlertMitigated(alert);
-            const isActiveHigh = (alert.severity === 'HIGH' || alert.severity === 'CRITICAL') && !isMitigated;
+            const isResolved = isAlertResolved(alert);
+            const isMitigated = !isResolved && isAlertMitigated(alert);
+            const isActiveHigh = !isResolved && !isMitigated && (
+              alert.severity === 'HIGH' || 
+              alert.severity === 'CRITICAL' || 
+              isAlertActive(alert)
+            );
 
             // Only animate new arrivals; existing incidents remain stable
             const isNew = !seenIdsRef.current.has(alert.id);
@@ -63,7 +68,9 @@ export default function AlertFeed({ alerts = [], onSelectAlert, onViewAll }) {
                   isActiveHigh
                     ? 'bg-red-950/20 border-red-800/50 hover:border-red-600/70 hover:bg-red-950/30'
                     : isMitigated
-                    ? 'bg-emerald-950/15 border-emerald-800/40 hover:border-emerald-700/60 hover:bg-emerald-950/25'
+                    ? 'bg-amber-950/20 border-amber-800/40 hover:border-amber-700/60 hover:bg-amber-950/30'
+                    : isResolved
+                    ? 'bg-[#151515] border-[#222222] hover:border-[#333333] opacity-80 hover:opacity-100'
                     : 'bg-[#181818] border-[#262626] hover:border-orange-500/40 hover:bg-[#1E1915]'
                 }`}
               >

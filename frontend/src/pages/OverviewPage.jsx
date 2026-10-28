@@ -21,8 +21,13 @@ import {
   fetchFewShotSummary, 
   fetchLiveEvents, 
   mitigateAlert, 
+  restoreAlert,
   mitigateEnterpriseAlerts,
+  restoreEnterpriseAlerts,
+  isAlertActive,
   isAlertMitigated,
+  isAlertResolved,
+  getEnterpriseSecurityState,
   normalizeEnterpriseId,
   getOfflineEnterprises,
   toggleEnterpriseStatus
@@ -121,7 +126,6 @@ export default function OverviewPage({ onNavigateTab }) {
 
     try {
       setMitigatingId(ids[0] || enterpriseId);
-
       const updatedTimestamp = new Date().toISOString();
       const normEnt = enterpriseId ? normalizeEnterpriseId(enterpriseId) : null;
 
@@ -133,7 +137,7 @@ export default function OverviewPage({ onNavigateTab }) {
           return {
             ...a,
             status: 'MITIGATED · SIMULATION',
-            mitigationStatus: 'MITIGATION_SIMULATED',
+            mitigationStatus: 'SIMULATED',
             mitigatedAt: updatedTimestamp
           };
         }
@@ -157,6 +161,58 @@ export default function OverviewPage({ onNavigateTab }) {
       }
     } catch (err) {
       console.error('Quick mitigation error:', err);
+    } finally {
+      setMitigatingId(null);
+    }
+  };
+
+  // Quick unblock / restore directly from the homepage inspection card
+  const handleQuickRestore = async (alertIdOrList, enterpriseId = null) => {
+    let ids = [];
+    if (Array.isArray(alertIdOrList)) {
+      ids = alertIdOrList.filter(Boolean);
+    } else if (alertIdOrList) {
+      ids = [alertIdOrList];
+    }
+    if (!ids.length && !enterpriseId) return;
+
+    try {
+      setMitigatingId(ids[0] || enterpriseId);
+      const updatedTimestamp = new Date().toISOString();
+      const normEnt = enterpriseId ? normalizeEnterpriseId(enterpriseId) : null;
+
+      // Optimistically update local alerts immediately
+      setAlerts(prev => prev.map(a => {
+        const matchesId = ids.includes(a.id);
+        const matchesEnt = normEnt && normalizeEnterpriseId(a.enterpriseId || a.enterpriseName) === normEnt;
+        if (matchesId || matchesEnt) {
+          return {
+            ...a,
+            status: 'RESOLVED',
+            mitigationStatus: 'RESTORED',
+            resolvedAt: updatedTimestamp
+          };
+        }
+        return a;
+      }));
+
+      // Restore via batch endpoint if enterpriseId provided
+      if (enterpriseId) {
+        await restoreEnterpriseAlerts(enterpriseId);
+      }
+
+      // Also restore individual alert IDs to ensure persistence
+      if (ids.length > 0) {
+        await Promise.all(ids.map(id => restoreAlert(id).catch(err => console.error(err))));
+      }
+
+      // Re-synchronize alerts from backend
+      const refreshed = await fetchAlerts().catch(() => null);
+      if (refreshed?.alerts) {
+        setAlerts(refreshed.alerts);
+      }
+    } catch (err) {
+      console.error('Quick restore error:', err);
     } finally {
       setMitigatingId(null);
     }
@@ -199,85 +255,33 @@ export default function OverviewPage({ onNavigateTab }) {
     const normId = node.id; // 'E1', 'E2', 'E3', etc.
     const isOffline = offlineList.includes(normId) || node.status === 'OFFLINE';
 
-    // If an enterprise is offline, attacks NEVER come for that enterprise
-    if (isOffline) {
-      return {
-        ...node,
-        status: 'OFFLINE',
-        health: 'OFFLINE',
-        riskScore: 0,
-        activeThreat: null,
-        activeAlertsCount: 0,
-        activeAlerts: [],
-        isLiveTarget: false,
-        isOffline: true
-      };
-    }
+    // Compute independent operational IDS security state
+    const secState = getEnterpriseSecurityState(normId, alerts, isOffline);
 
-    // Active unmitigated alerts targeting this node
-    const activeAlerts = alerts.filter(a => {
-      const target = normalizeEnterpriseId(a.enterpriseId || a.enterpriseName);
-      return target === normId && !isAlertMitigated(a);
-    });
-
-    // Check if enterprise has recent mitigated alerts
-    const enterpriseMitigatedAlerts = alerts.filter(a => {
-      const target = normalizeEnterpriseId(a.enterpriseId || a.enterpriseName);
-      return target === normId && isAlertMitigated(a);
-    });
-
-    const latestMitigatedTime = enterpriseMitigatedAlerts.reduce((latest, a) => {
-      const d = parseDate(a.mitigatedAt);
-      const t = d ? d.getTime() : 0;
-      return t > latest ? t : latest;
-    }, 0);
-
-    // Recent live simulated detection event targeting this node
-    const recentLiveEvent = liveEvents.find(e => {
-      const target = normalizeEnterpriseId(e.enterprise_id || e.enterprise_name);
-      return target === normId;
-    });
-
-    // A live event is ONLY considered an active ongoing attack if:
-    // 1) It occurred recently (within the last 12 seconds relative to server-synchronized clock)
-    // 2) It is not BENIGN
-    // 3) It occurred AFTER the latest mitigation timestamp (with a 5s grace window)
+    // Check if there's an ongoing live simulated attack event within last 12s
     const serverNow = Date.now() + (serverClockOffsetRef.current || 0);
-    const liveEventDate = parseDate(recentLiveEvent?.timestamp);
-    const liveEventTime = liveEventDate ? liveEventDate.getTime() : 0;
-    const isLiveEventRecent = Boolean(
-      liveEventTime && (serverNow - liveEventTime >= -5000) && (serverNow - liveEventTime < 12000)
-    );
+    const recentLiveAttack = (liveEvents || []).find(e => {
+      if (!e) return false;
+      const target = normalizeEnterpriseId(e.enterprise_id || e.enterprise_name);
+      if (target !== normId) return false;
+      if (!e.prediction || e.prediction === 'BENIGN') return false;
+      const eventTime = parseDate(e.timestamp)?.getTime();
+      if (!eventTime) return false;
+      const elapsed = serverNow - eventTime;
+      return elapsed >= -5000 && elapsed < 12000;
+    });
 
-    const isLiveAttack = isLiveEventRecent && 
-      recentLiveEvent.prediction && 
-      recentLiveEvent.prediction !== 'BENIGN' &&
-      (!latestMitigatedTime || liveEventTime > (latestMitigatedTime + 5000));
+    let status = secState.status;
+    let health = secState.health;
+    let riskScore = secState.riskScore;
+    let activeThreat = secState.activeThreat;
 
-    const hasActiveAlert = activeAlerts.length > 0;
-
-    let status = 'ONLINE';
-    let health = 'HEALTHY';
-    let riskScore = node.riskScore || 14;
-    let activeThreat = null;
-
-    if (hasActiveAlert) {
-      const topAlert = activeAlerts[0];
-      activeThreat = topAlert.threatType;
-      if (topAlert.severity === 'CRITICAL') {
-        status = 'CRITICAL';
-        health = 'CRITICAL';
-        riskScore = 92;
-      } else {
-        status = 'ATTACK DETECTED';
-        health = 'ELEVATED';
-        riskScore = 78;
-      }
-    } else if (isLiveAttack) {
-      status = 'ATTACK DETECTED';
-      health = 'ELEVATED';
-      riskScore = 74;
-      activeThreat = recentLiveEvent.prediction;
+    // A live attack overrides to UNDER ATTACK only if the enterprise is not OFFLINE and not currently MITIGATED
+    if (recentLiveAttack && !isOffline && status === 'ONLINE') {
+      status = 'UNDER ATTACK';
+      health = 'CRITICAL';
+      activeThreat = recentLiveAttack.prediction;
+      riskScore = 86;
     }
 
     return {
@@ -286,10 +290,14 @@ export default function OverviewPage({ onNavigateTab }) {
       health,
       riskScore,
       activeThreat,
-      activeAlertsCount: activeAlerts.length,
-      activeAlerts,
-      isLiveTarget: Boolean(isLiveAttack),
-      isOffline: false
+      activeAlertsCount: secState.activeAlertsCount,
+      activeAlerts: secState.activeAlerts,
+      mitigatedAlertsCount: secState.mitigatedAlertsCount,
+      mitigatedAlerts: secState.mitigatedAlerts,
+      resolvedAlertsCount: secState.resolvedAlertsCount,
+      resolvedAlerts: secState.resolvedAlerts,
+      isLiveTarget: Boolean(recentLiveAttack),
+      isOffline
     };
   });
 
@@ -464,15 +472,33 @@ export default function OverviewPage({ onNavigateTab }) {
             <div>
               <span className="text-[#737373] block text-[11px] font-sans">Current Security State:</span>
               <span className={`font-sans font-semibold ${
-                selectedNode.isOffline ? 'text-[#525252]' : selectedNode.status === 'ONLINE' ? 'text-emerald-400' : 'text-red-400'
+                selectedNode.isOffline 
+                  ? 'text-[#525252]' 
+                  : selectedNode.status === 'UNDER ATTACK' 
+                  ? 'text-red-400' 
+                  : selectedNode.status === 'MITIGATED'
+                  ? 'text-orange-400'
+                  : 'text-emerald-400'
               }`}>
-                {selectedNode.isOffline ? 'OFFLINE (Ingress Blocked)' : selectedNode.status === 'ONLINE' ? 'HEALTHY / ONLINE' : `UNDER ATTACK (${selectedNode.activeThreat})`}
+                {selectedNode.isOffline 
+                  ? 'OFFLINE (Ingress Blocked)' 
+                  : selectedNode.status === 'UNDER ATTACK'
+                  ? `UNDER ATTACK (${selectedNode.activeThreat || 'Alert Detected'})` 
+                  : selectedNode.status === 'MITIGATED'
+                  ? `MITIGATED · SIMULATION (${selectedNode.activeThreat || 'Protected'})`
+                  : 'ONLINE / HEALTHY'}
               </span>
             </div>
             <div>
               <span className="text-[#737373] block text-[11px] font-sans">Dynamic Risk Score:</span>
               <span className={`font-mono font-bold ${
-                selectedNode.isOffline ? 'text-[#525252]' : selectedNode.riskScore > 50 ? 'text-red-400' : 'text-emerald-400'
+                selectedNode.isOffline 
+                  ? 'text-[#525252]' 
+                  : selectedNode.status === 'UNDER ATTACK' 
+                  ? 'text-red-400' 
+                  : selectedNode.status === 'MITIGATED'
+                  ? 'text-orange-400'
+                  : 'text-emerald-400'
               }`}>
                 {selectedNode.isOffline ? '0% (MUTED)' : `${selectedNode.riskScore}% ${selectedNode.riskScore > 50 ? '(ELEVATED)' : '(NORMAL)'}`}
               </span>
@@ -480,18 +506,18 @@ export default function OverviewPage({ onNavigateTab }) {
           </div>
 
           {/* Action Required Banner if node is under attack */}
-          {selectedNode.activeAlertsCount > 0 && selectedNode.activeAlerts?.[0] && (
+          {selectedNode.status === 'UNDER ATTACK' && !selectedNode.isOffline && (
             <div className="mt-3 pt-2.5 border-t border-[#262626] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 bg-red-950/20 p-2.5 rounded-sm border border-red-800/50">
               <div className="flex items-center space-x-2">
                 <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
                 <span className="text-red-200 text-[11px] font-sans">
-                  Active Threat: <strong className="font-mono text-white">{selectedNode.activeAlerts[0].threatType}</strong> ({selectedNode.activeAlerts[0].id}) • Action Required
+                  Active Threat: <strong className="font-mono text-white">{selectedNode.activeThreat || 'Volumetric Vector'}</strong> ({selectedNode.activeAlerts?.[0]?.id || `INCIDENT-${selectedNode.id}`}) • Action Required
                 </span>
               </div>
               <div className="flex items-center space-x-2">
                 <button
                   disabled={mitigatingId !== null}
-                  onClick={() => handleQuickMitigate(selectedNode.activeAlerts.map(a => a.id), selectedNode.id)}
+                  onClick={() => handleQuickMitigate(selectedNode.activeAlerts?.map(a => a.id) || [], selectedNode.id)}
                   className="px-2.5 py-1 rounded-sm bg-orange-600 hover:bg-orange-500 text-white font-mono text-[11px] font-semibold flex items-center space-x-1 shadow-sm transition-all duration-150 border border-orange-500 disabled:opacity-50"
                 >
                   {mitigatingId ? (
@@ -517,18 +543,56 @@ export default function OverviewPage({ onNavigateTab }) {
             </div>
           )}
 
-          {/* Protected Confirmation Banner when all threats targeting this node are mitigated */}
-          {selectedNode.activeAlertsCount === 0 && !selectedNode.isOffline && (
+          {/* Mitigated Simulation Banner if node threats are currently mitigated */}
+          {selectedNode.status === 'MITIGATED' && !selectedNode.isOffline && (
+            <div className="mt-3 pt-2.5 border-t border-[#262626] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 bg-orange-950/20 p-2.5 rounded-sm border border-orange-800/50">
+              <div className="flex items-center space-x-2">
+                <Shield className="w-4 h-4 text-orange-400 flex-shrink-0" />
+                <span className="text-orange-200 text-[11px] font-sans">
+                  🟠 Mitigated · Simulation • Rate-limiting & 50-shot exemplar filter active on {selectedNode.id}
+                </span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  disabled={mitigatingId !== null}
+                  onClick={() => handleQuickRestore(selectedNode.mitigatedAlerts?.map(a => a.id) || [], selectedNode.id)}
+                  className="px-2.5 py-1 rounded-sm bg-[#1A1612] hover:bg-[#241D17] text-orange-300 font-mono text-[11px] font-semibold flex items-center space-x-1 shadow-sm transition-all duration-150 border border-orange-600/70 disabled:opacity-50"
+                >
+                  {mitigatingId ? (
+                    <>
+                      <RotateCw className="w-3 h-3 animate-spin mr-1" />
+                      <span>RESTORING...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-3 h-3 mr-1 text-orange-400" />
+                      <span>UNBLOCK / RESTORE</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => onNavigateTab && onNavigateTab('alerts')}
+                  className="px-2.5 py-1 rounded-sm bg-[#181818] hover:bg-[#222222] border border-[#2E2E2E] text-[#A3A3A3] hover:text-[#EDEDED] font-sans text-[11px] flex items-center space-x-1 transition-colors duration-150"
+                >
+                  <span>Triage Runbook</span>
+                  <ArrowRight className="w-3 h-3 ml-0.5 text-orange-400" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Protected Confirmation Banner when node is online & all threats are resolved */}
+          {selectedNode.status === 'ONLINE' && !selectedNode.isOffline && (
             <div className="mt-3 pt-2.5 border-t border-[#262626] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 bg-emerald-950/20 p-2.5 rounded-sm border border-emerald-800/50">
               <div className="flex items-center space-x-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
                 <span className="text-emerald-300 text-[11px] font-sans">
-                  Perimeter Protected • All threats mitigated • 1-NN similarity filter & dynamic rate-limiting active
+                  Perimeter Protected • All threats resolved • System operating normally
                 </span>
               </div>
               <div className="flex items-center space-x-2">
                 <span className="px-2 py-0.5 rounded-sm bg-emerald-950/70 text-emerald-400 border border-emerald-700/50 font-mono text-[10px] font-semibold">
-                  STATUS: HEALTHY
+                  STATUS: ONLINE
                 </span>
                 <button
                   onClick={() => onNavigateTab && onNavigateTab('alerts')}

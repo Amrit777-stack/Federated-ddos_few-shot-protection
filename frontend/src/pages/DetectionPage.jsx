@@ -14,7 +14,8 @@ import {
   Info,
   Trash2,
   Server,
-  Power
+  Power,
+  Zap
 } from 'lucide-react';
 import { 
   fetchDetectionDemo, 
@@ -25,9 +26,63 @@ import {
   stopLiveSimulation,
   clearLiveHistory,
   getOfflineEnterprises,
-  toggleEnterpriseStatus
+  toggleEnterpriseStatus,
+  injectTestAttack
 } from '../services/api';
 import { formatEventTime, formatFullDateTime } from '../utils/time';
+
+function getEventAuditDetails(evt) {
+  if (!evt) return { 
+    isAttack: false, 
+    groundTruth: 'BENIGN', 
+    detectionLabel: 'NO ATTACK', 
+    classification: 'CORRECT', 
+    badgeColor: 'emerald',
+    description: 'Normal traffic flow'
+  };
+
+  const predictedClass = evt.prediction || 'BENIGN';
+  const isAttack = predictedClass !== 'BENIGN';
+  const groundTruth = evt.ground_truth_label || evt.ground_truth_evaluation_only || evt.ground_truth || 'BENIGN';
+  const isActualAttack = groundTruth !== 'BENIGN';
+
+  let classification = 'CORRECT';
+  let badgeColor = 'emerald';
+  let description = 'Prediction matches ground truth verification.';
+
+  if (isAttack && isActualAttack) {
+    if (predictedClass === groundTruth) {
+      classification = 'CORRECT';
+      badgeColor = 'emerald';
+      description = 'Attack correctly detected and classified to its exact attack family.';
+    } else {
+      classification = 'MISCLASSIFIED';
+      badgeColor = 'amber';
+      description = 'Attack detected by IDS; specific attack family misclassified (malicious traffic flagged).';
+    }
+  } else if (!isAttack && !isActualAttack) {
+    classification = 'CORRECT';
+    badgeColor = 'emerald';
+    description = 'Benign traffic correctly recognized (True Negative).';
+  } else if (isAttack && !isActualAttack) {
+    classification = 'FALSE POSITIVE';
+    badgeColor = 'amber';
+    description = 'False positive: model predicted attack on benign traffic. Enterprise alerted per IDS detection.';
+  } else if (!isAttack && isActualAttack) {
+    classification = 'MISSED (FN)';
+    badgeColor = 'red';
+    description = 'False negative: attack missed by model (predicted BENIGN). Recorded in evaluation metrics; enterprise not alerted.';
+  }
+
+  return {
+    isAttack,
+    groundTruth,
+    detectionLabel: isAttack ? 'ATTACK DETECTED' : 'NO ATTACK',
+    classification,
+    badgeColor,
+    description
+  };
+}
 
 export default function DetectionPage() {
   const [activeMode, setActiveMode] = useState('live');
@@ -62,6 +117,26 @@ export default function DetectionPage() {
       console.error('Failed to toggle enterprise:', err);
     }
   };
+
+  const handleInjectScenario = async (enterpriseId, prediction, groundTruth) => {
+    try {
+      setActionLoading(true);
+      await injectTestAttack({ enterpriseId, prediction, groundTruth });
+      const eventsRes = await fetchLiveEvents(30).catch(() => null);
+      if (eventsRes) {
+        setLiveData(eventsRes);
+        if (eventsRes.events?.length > 0) {
+          setSelectedLiveEvent(eventsRes.events[0]);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to inject test scenario:', err);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+
 
   useEffect(() => {
     async function init() {
@@ -213,6 +288,8 @@ export default function DetectionPage() {
     criticalAlerts: 0,
     averageConfidence: 0
   };
+
+  const selectedAudit = selectedLiveEvent ? getEventAuditDetails(selectedLiveEvent) : null;
 
   return (
     <div className="space-y-4">
@@ -373,6 +450,132 @@ export default function DetectionPage() {
           </div>
         )}
 
+        {/* Live Threat Injection & Verification Sandbox Controls */}
+        <div className="pt-2 border-t border-[#262626] space-y-1.5 text-xs font-sans">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Zap className="w-3.5 h-3.5 text-orange-400" />
+              <span className="text-[#EDEDED] font-semibold text-xs">Simulated Threat Injection Controls:</span>
+              <span className="text-[11px] text-[#737373] font-mono hidden md:inline">(Instant live validation of independent SOC detection & classification)</span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              onClick={() => handleInjectScenario('E3', 'DrDoS_UDP', 'DrDoS_UDP')}
+              disabled={actionLoading}
+              className="px-2.5 py-1 rounded-sm bg-red-950/40 border border-red-700/50 hover:bg-red-900/60 active:scale-[0.98] text-red-200 text-[11px] font-sans font-medium flex items-center space-x-1.5 transition-all"
+              title="Test A: Attack E3 -> E3 becomes RED (Under Attack)"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-live-pulse" />
+              <span>Attack E3 (DrDoS_UDP)</span>
+            </button>
+
+            <button
+              onClick={() => handleInjectScenario('E1', 'DrDoS_DNS', 'DrDoS_DNS')}
+              disabled={actionLoading}
+              className="px-2.5 py-1 rounded-sm bg-red-950/40 border border-red-700/50 hover:bg-red-900/60 active:scale-[0.98] text-red-200 text-[11px] font-sans font-medium flex items-center space-x-1.5 transition-all"
+              title="Test C: Attack E1 -> E1 and E3 both turn RED independently"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-live-pulse" />
+              <span>Attack E1 (DrDoS_DNS)</span>
+            </button>
+
+            <button
+              onClick={() => handleInjectScenario('E3', 'Syn', 'DrDoS_UDP')}
+              disabled={actionLoading}
+              className="px-2.5 py-1 rounded-sm bg-amber-950/40 border border-amber-700/50 hover:bg-amber-900/60 active:scale-[0.98] text-amber-200 text-[11px] font-sans font-medium flex items-center space-x-1.5 transition-all"
+              title="Test G: GT DrDoS_UDP + Pred Syn -> E3 turns RED + audit flags MISCLASSIFIED"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+              <span>GT: DrDoS_UDP | Pred: Syn (Misclassified)</span>
+            </button>
+
+            <button
+              onClick={() => handleInjectScenario('E3', 'BENIGN', 'DrDoS_UDP')}
+              disabled={actionLoading}
+              className="px-2.5 py-1 rounded-sm bg-emerald-950/40 border border-emerald-700/50 hover:bg-emerald-900/60 active:scale-[0.98] text-emerald-200 text-[11px] font-sans font-medium flex items-center space-x-1.5 transition-all"
+              title="Test H: GT DrDoS_UDP + Pred BENIGN -> E3 stays GREEN from IDS perspective (Missed FN)"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              <span>GT: DrDoS_UDP | Pred: BENIGN (Missed FN)</span>
+            </button>
+
+            <button
+              onClick={() => handleInjectScenario('E3', 'Syn', 'BENIGN')}
+              disabled={actionLoading}
+              className="px-2.5 py-1 rounded-sm bg-red-950/40 border border-red-700/50 hover:bg-red-900/60 active:scale-[0.98] text-red-200 text-[11px] font-sans font-medium flex items-center space-x-1.5 transition-all"
+              title="Test I: GT BENIGN + Pred Syn -> E3 turns RED (False Positive)"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+              <span>GT: BENIGN | Pred: Syn (False Positive)</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Live Threat Injection & Verification Sandbox Controls */}
+        <div className="pt-2 border-t border-[#262626] space-y-1.5 text-xs font-sans">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Zap className="w-3.5 h-3.5 text-orange-400" />
+              <span className="text-[#EDEDED] font-semibold text-xs">Simulated Threat Injection Controls:</span>
+              <span className="text-[11px] text-[#737373] font-mono hidden md:inline">(Instant live validation of independent SOC detection & classification)</span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              onClick={() => handleInjectScenario('E3', 'DrDoS_UDP', 'DrDoS_UDP')}
+              disabled={actionLoading}
+              className="px-2.5 py-1 rounded-sm bg-red-950/40 border border-red-700/50 hover:bg-red-900/60 active:scale-[0.98] text-red-200 text-[11px] font-sans font-medium flex items-center space-x-1.5 transition-all"
+              title="Test A: Attack E3 -> E3 becomes RED (Under Attack)"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-live-pulse" />
+              <span>Attack E3 (DrDoS_UDP)</span>
+            </button>
+
+            <button
+              onClick={() => handleInjectScenario('E1', 'DrDoS_DNS', 'DrDoS_DNS')}
+              disabled={actionLoading}
+              className="px-2.5 py-1 rounded-sm bg-red-950/40 border border-red-700/50 hover:bg-red-900/60 active:scale-[0.98] text-red-200 text-[11px] font-sans font-medium flex items-center space-x-1.5 transition-all"
+              title="Test C: Attack E1 -> E1 and E3 both turn RED independently"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-live-pulse" />
+              <span>Attack E1 (DrDoS_DNS)</span>
+            </button>
+
+            <button
+              onClick={() => handleInjectScenario('E3', 'Syn', 'DrDoS_UDP')}
+              disabled={actionLoading}
+              className="px-2.5 py-1 rounded-sm bg-amber-950/40 border border-amber-700/50 hover:bg-amber-900/60 active:scale-[0.98] text-amber-200 text-[11px] font-sans font-medium flex items-center space-x-1.5 transition-all"
+              title="Test G: GT DrDoS_UDP + Pred Syn -> E3 turns RED + audit flags MISCLASSIFIED"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+              <span>GT: DrDoS_UDP | Pred: Syn (Misclassified)</span>
+            </button>
+
+            <button
+              onClick={() => handleInjectScenario('E3', 'BENIGN', 'DrDoS_UDP')}
+              disabled={actionLoading}
+              className="px-2.5 py-1 rounded-sm bg-emerald-950/40 border border-emerald-700/50 hover:bg-emerald-900/60 active:scale-[0.98] text-emerald-200 text-[11px] font-sans font-medium flex items-center space-x-1.5 transition-all"
+              title="Test H: GT DrDoS_UDP + Pred BENIGN -> E3 stays GREEN from IDS perspective (Missed FN)"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              <span>GT: DrDoS_UDP | Pred: BENIGN (Missed FN)</span>
+            </button>
+
+            <button
+              onClick={() => handleInjectScenario('E3', 'Syn', 'BENIGN')}
+              disabled={actionLoading}
+              className="px-2.5 py-1 rounded-sm bg-red-950/40 border border-red-700/50 hover:bg-red-900/60 active:scale-[0.98] text-red-200 text-[11px] font-sans font-medium flex items-center space-x-1.5 transition-all"
+              title="Test I: GT BENIGN + Pred Syn -> E3 turns RED (False Positive)"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+              <span>GT: BENIGN | Pred: Syn (False Positive)</span>
+            </button>
+          </div>
+        </div>
+
         {/* Live Session Metrics Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-1">
           {/* Flows Processed */}
@@ -437,7 +640,7 @@ export default function DetectionPage() {
           <div className="flex items-center space-x-1.5">
             <Info className="w-3.5 h-3.5 text-[#525252] flex-shrink-0" />
             <span>
-              <strong>Scientific Protocol:</strong> Replaying 18,088 held-out test rows without replacement. The PyTorch model receives raw feature vectors only; ground truth is reserved for post-inference audit.
+              <strong>Scientific Protocol:</strong> Detection state is governed exclusively by model prediction (<code className="text-orange-400 font-mono">prediction !== 'BENIGN'</code>). Ground truth serves post-inference evaluation & research metrics only.
             </span>
           </div>
           <span className="text-[#737373] font-mono text-[10px] hidden md:inline">
@@ -485,16 +688,16 @@ export default function DetectionPage() {
                       <th className="py-2 px-2.5 font-medium">Node</th>
                       <th className="py-2 px-2.5 font-medium">Model Prediction</th>
                       <th className="py-2 px-2.5 font-medium">Confidence</th>
+                      <th className="py-2 px-2.5 font-medium">Detection</th>
                       <th className="py-2 px-2.5 font-medium">Ground Truth</th>
-                      <th className="py-2 px-2.5 text-center font-medium">Audit Result</th>
+                      <th className="py-2 px-2.5 text-center font-medium">Classification</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#202020] font-mono">
                     {liveData.events.map((evt) => {
                       const isSelected = selectedLiveEvent?.event_id === evt.event_id;
                       const timeStr = formatEventTime(evt.timestamp);
-                      const isAttack = evt.prediction !== 'BENIGN';
-                      const isCorrect = evt.correct;
+                      const audit = getEventAuditDetails(evt);
 
                       return (
                         <tr
@@ -522,26 +725,52 @@ export default function DetectionPage() {
                             )}
                           </td>
                           <td className="py-1.5 px-2.5">
-                            <span className={isAttack ? 'text-red-400 font-semibold' : 'text-emerald-400 font-medium'}>
+                            <span className={audit.isAttack ? 'text-red-400 font-semibold' : 'text-emerald-400 font-medium'}>
                               {evt.prediction}
                             </span>
                           </td>
                           <td className="py-1.5 px-2.5 text-[#EDEDED] font-medium">
                             {(evt.confidence * 100).toFixed(1)}%
                           </td>
-                          <td className="py-1.5 px-2.5 text-[11px] text-[#737373] truncate max-w-[100px]">
-                            {evt.ground_truth_label || evt.ground_truth_evaluation_only}
-                          </td>
-                          <td className="py-1.5 px-2.5 text-center whitespace-nowrap font-sans">
-                            {isCorrect ? (
-                              <span className="px-1.5 py-0.2 rounded-sm text-[10px] font-medium bg-emerald-950/40 text-emerald-300 border border-emerald-700/40 inline-flex items-center space-x-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1" />
-                                <span>Correct</span>
+                          <td className="py-1.5 px-2.5 whitespace-nowrap font-sans">
+                            {audit.isAttack ? (
+                              <span className="px-1.5 py-0.2 rounded-sm text-[10px] font-medium bg-red-950/40 text-red-300 border border-red-700/40 inline-flex items-center space-x-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-red-400 mr-1 animate-live-pulse" />
+                                <span>ATTACK DETECTED</span>
                               </span>
                             ) : (
-                              <span className="px-1.5 py-0.2 rounded-sm text-[10px] font-medium bg-red-950/40 text-red-300 border border-red-700/40 inline-flex items-center space-x-1">
+                              <span className="px-1.5 py-0.2 rounded-sm text-[10px] font-medium bg-emerald-950/30 text-emerald-400 border border-emerald-800/40 inline-flex items-center space-x-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1" />
+                                <span>NO ATTACK</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-1.5 px-2.5 text-[11px] text-[#737373] truncate max-w-[100px]">
+                            {audit.groundTruth}
+                          </td>
+                          <td className="py-1.5 px-2.5 text-center whitespace-nowrap font-sans">
+                            {audit.classification === 'CORRECT' && (
+                              <span className="px-1.5 py-0.2 rounded-sm text-[10px] font-medium bg-emerald-950/40 text-emerald-300 border border-emerald-700/40 inline-flex items-center space-x-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1" />
+                                <span>CORRECT</span>
+                              </span>
+                            )}
+                            {audit.classification === 'MISCLASSIFIED' && (
+                              <span className="px-1.5 py-0.2 rounded-sm text-[10px] font-medium bg-amber-950/40 text-amber-300 border border-amber-700/40 inline-flex items-center space-x-1" title="Attack detected; attack family misclassified">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mr-1" />
+                                <span>MISCLASSIFIED</span>
+                              </span>
+                            )}
+                            {audit.classification === 'FALSE POSITIVE' && (
+                              <span className="px-1.5 py-0.2 rounded-sm text-[10px] font-medium bg-amber-950/40 text-amber-300 border border-amber-700/40 inline-flex items-center space-x-1" title="Model predicted attack on benign traffic">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mr-1" />
+                                <span>FALSE POSITIVE</span>
+                              </span>
+                            )}
+                            {audit.classification === 'MISSED (FN)' && (
+                              <span className="px-1.5 py-0.2 rounded-sm text-[10px] font-medium bg-red-950/40 text-red-300 border border-red-700/40 inline-flex items-center space-x-1" title="Attack missed by model (evaluated as BENIGN)">
                                 <span className="w-1.5 h-1.5 rounded-full bg-red-400 mr-1" />
-                                <span>Misclassified</span>
+                                <span>MISSED (FN)</span>
                               </span>
                             )}
                           </td>
@@ -556,7 +785,7 @@ export default function DetectionPage() {
 
           {/* Inspected Live Flow Inspector (1 col) */}
           <div>
-            {selectedLiveEvent ? (
+            {selectedLiveEvent && selectedAudit ? (
               <div className="p-3.5 sm:p-4 rounded-sm bg-[#141414] border border-[#262626] space-y-2.5">
                 <div className="flex items-center justify-between pb-2 border-b border-[#262626]">
                   <div className="flex items-center space-x-1.5">
@@ -577,31 +806,47 @@ export default function DetectionPage() {
                     <span className="text-[#EDEDED] font-semibold">{formatFullDateTime(selectedLiveEvent.timestamp, true)}</span>
                   </div>
 
-                  {/* Evaluation Result Banner */}
+                  {/* IDS Detection State Banner */}
                   <div className={`p-2 rounded-sm border ${
-                    selectedLiveEvent.correct
-                      ? 'bg-emerald-950/30 border-emerald-700/40 text-emerald-300'
-                      : 'bg-red-950/30 border-red-700/40 text-red-300'
+                    selectedAudit.isAttack
+                      ? 'bg-red-950/30 border-red-700/40 text-red-200'
+                      : 'bg-emerald-950/30 border-emerald-700/40 text-emerald-300'
                   }`}>
-                    <div className="flex items-center space-x-1.5">
-                      {selectedLiveEvent.correct ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      ) : (
-                        <X className="w-3.5 h-3.5 text-red-400" />
-                      )}
-                      <span className="font-medium text-[11px]">
-                        {selectedLiveEvent.correct 
-                          ? 'Prediction matches ground truth' 
-                          : 'Classification mismatch (research log)'}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-1.5 font-sans font-semibold text-xs">
+                        <span className={`w-2 h-2 rounded-full ${selectedAudit.isAttack ? 'bg-red-400 animate-live-pulse' : 'bg-emerald-400'}`} />
+                        <span>{selectedAudit.isAttack ? 'IDS Attack Detected' : 'IDS Normal Traffic'}</span>
+                      </div>
+                      <span className="text-[10px] font-mono font-medium">
+                        {selectedAudit.isAttack ? 'UNDER ATTACK' : 'ONLINE / BENIGN'}
                       </span>
                     </div>
+                  </div>
+
+                  {/* Classification Evaluation Audit Banner */}
+                  <div className={`p-2 rounded-sm border ${
+                    selectedAudit.classification === 'CORRECT'
+                      ? 'bg-emerald-950/20 border-emerald-800/40 text-emerald-300'
+                      : selectedAudit.classification === 'MISSED (FN)'
+                      ? 'bg-red-950/25 border-red-800/40 text-red-300'
+                      : 'bg-amber-950/20 border-amber-800/40 text-amber-300'
+                  }`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-mono uppercase font-semibold">Audit Classification</span>
+                      <span className="text-[10px] font-sans font-bold">{selectedAudit.classification}</span>
+                    </div>
+                    <p className="text-[11px] font-sans leading-tight opacity-90">
+                      {selectedAudit.description}
+                    </p>
                   </div>
 
                   {/* PyTorch Prediction Box */}
                   <div className="p-2.5 rounded-sm bg-[#181818] border border-[#262626]">
                     <span className="text-orange-400 text-[11px] block font-sans font-medium">Model Inference</span>
                     <div className="text-base font-sans font-bold text-[#EDEDED] mt-0.5 flex items-center justify-between">
-                      <span className="text-white">{selectedLiveEvent.prediction}</span>
+                      <span className={selectedAudit.isAttack ? 'text-red-400 font-bold' : 'text-emerald-400 font-bold'}>
+                        {selectedLiveEvent.prediction}
+                      </span>
                       <span className="font-mono text-sm text-orange-400 font-semibold">
                         {(selectedLiveEvent.confidence * 100).toFixed(1)}%
                       </span>
@@ -613,7 +858,7 @@ export default function DetectionPage() {
                   <div className="p-2.5 rounded-sm bg-[#181818] border border-[#262626]">
                     <span className="text-[#737373] text-[11px] block font-sans">Audit Ground Truth</span>
                     <div className="text-xs font-sans font-semibold text-[#A3A3A3] mt-0.5 flex items-center justify-between">
-                      <span>{selectedLiveEvent.ground_truth_label || selectedLiveEvent.ground_truth_evaluation_only}</span>
+                      <span>{selectedAudit.groundTruth}</span>
                       <span className="text-[10px] text-[#737373] font-mono">Class ID {selectedLiveEvent.ground_truth_class_id ?? '—'}</span>
                     </div>
                   </div>

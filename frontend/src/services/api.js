@@ -12,6 +12,12 @@ export async function fetchOverview() {
   return res.json();
 }
 
+export function normalizeEnterpriseId(enterpriseId) {
+  if (!enterpriseId) return '';
+  const match = String(enterpriseId).match(/([1-5])/);
+  return match ? match[1] : String(enterpriseId).replace(/\\D/g, '');
+}
+
 // Enterprise Online / Offline State Management
 export function getOfflineEnterprises() {
   try {
@@ -287,24 +293,105 @@ export async function fetchRoundHistory() {
   return res.json();
 }
 
-export function isAlertMitigated(alert) {
+/**
+ * Checks whether an incident has been resolved / unblocked
+ */
+export function isAlertResolved(alert) {
   if (!alert) return false;
   const status = String(alert.status || '').toUpperCase();
   const mitStatus = String(alert.mitigationStatus || '').toUpperCase();
-  return status.includes('MITIGAT') || 
-         status.includes('RESOLV') || 
-         mitStatus.includes('MITIGAT') || 
-         mitStatus.includes('RESOLV');
+  return status.includes('RESOLV') || mitStatus.includes('RESTORE') || mitStatus.includes('RESOLV');
 }
 
-export function normalizeEnterpriseId(idOrName) {
-  if (!idOrName) return 'E1';
-  const str = String(idOrName).toUpperCase().trim();
-  const match = str.match(/\bE(?:NTERPRISE)?[-_\s]?([1-5])\b/i) || str.match(/([1-5])/);
-  if (match) {
-    return `E${match[1]}`;
+/**
+ * Checks whether an incident is currently in simulated mitigated state (and not yet resolved)
+ */
+export function isAlertMitigated(alert) {
+  if (!alert) return false;
+  if (isAlertResolved(alert)) return false;
+  const status = String(alert.status || '').toUpperCase();
+  const mitStatus = String(alert.mitigationStatus || '').toUpperCase();
+  return status.includes('MITIGAT') || mitStatus.includes('SIMULAT');
+}
+
+/**
+ * Checks whether an incident is active and requiring action (unmitigated & unresolved)
+ */
+export function isAlertActive(alert) {
+  if (!alert) return false;
+  return !isAlertMitigated(alert) && !isAlertResolved(alert);
+}
+
+/**
+ * Computes the independent operational IDS security state for an enterprise client.
+ * Rules:
+ * 1. If enterprise is marked OFFLINE -> 'OFFLINE'
+ * 2. If enterprise has >= 1 active ACTION_REQUIRED incident -> 'UNDER ATTACK' (🔴)
+ * 3. Else if enterprise has >= 1 MITIGATED incident -> 'MITIGATED' (🟠)
+ * 4. Else (all incidents are RESOLVED or none exist) -> 'ONLINE' (🟢)
+ */
+export function getEnterpriseSecurityState(normId, allAlerts = [], isOffline = false) {
+  if (isOffline) {
+    return {
+      status: 'OFFLINE',
+      health: 'OFFLINE',
+      riskScore: 0,
+      activeThreat: null,
+      activeAlertsCount: 0,
+      activeAlerts: [],
+      mitigatedAlertsCount: 0,
+      mitigatedAlerts: [],
+      resolvedAlertsCount: 0,
+      resolvedAlerts: []
+    };
   }
-  return 'E1';
+
+  const targetDigit = normalizeEnterpriseId(normId);
+
+  const entAlerts = (allAlerts || []).filter(a => {
+    if (!a) return false;
+    const alertDigit = normalizeEnterpriseId(a.enterpriseId || a.enterpriseName);
+    return alertDigit === targetDigit;
+  });
+
+  const activeAlerts = entAlerts.filter(isAlertActive);
+  const mitigatedAlerts = entAlerts.filter(isAlertMitigated);
+  const resolvedAlerts = entAlerts.filter(isAlertResolved);
+
+  let status = 'ONLINE';
+  let health = 'HEALTHY';
+  let riskScore = 14;
+  let activeThreat = null;
+
+  if (activeAlerts.length > 0) {
+    status = 'UNDER ATTACK';
+    health = 'CRITICAL';
+    activeThreat = activeAlerts[0].threatType;
+    riskScore = activeAlerts[0].severity === 'CRITICAL' ? 92 : 78;
+  } else if (mitigatedAlerts.length > 0) {
+    status = 'MITIGATED';
+    health = 'ELEVATED';
+    activeThreat = mitigatedAlerts[0].threatType;
+    riskScore = 32;
+  } else {
+    status = 'ONLINE';
+    health = 'HEALTHY';
+    riskScore = 12;
+    activeThreat = null;
+  }
+
+  return {
+    status,
+    health,
+    riskScore,
+    activeThreat,
+    activeAlertsCount: activeAlerts.length,
+    activeAlerts,
+    mitigatedAlertsCount: mitigatedAlerts.length,
+    mitigatedAlerts,
+    resolvedAlertsCount: resolvedAlerts.length,
+    resolvedAlerts
+  };
 }
 
 export async function fetchAlerts() {
@@ -319,7 +406,7 @@ export async function fetchAlerts() {
     console.warn('[API] Could not fetch remote alerts, using fallback.');
   }
 
-  // Merge client-side localStorage overrides so simulated mitigations persist across page reloads and tab navigation
+  // Merge client-side localStorage overrides so simulated mitigations and resolutions persist
   try {
     const savedOverrides = JSON.parse(localStorage.getItem('sentinel_alert_overrides') || '{}');
     if (Object.keys(savedOverrides).length > 0) {
@@ -341,15 +428,15 @@ export async function mitigateAlert(alertId) {
   const timestamp = new Date().toISOString();
   const override = {
     status: 'MITIGATED · SIMULATION',
-    mitigationStatus: 'MITIGATION_SIMULATED',
+    mitigationStatus: 'SIMULATED',
     mitigatedAt: timestamp,
-    mitigationActionTaken: 'Simulated mitigation executed. No real network configuration changed.'
+    mitigationActionTaken: 'Simulated mitigation executed. 50-shot exemplar filter & rate limiting deployed (simulation only; no real network changes).'
   };
 
   // Persist locally
   try {
     const saved = JSON.parse(localStorage.getItem('sentinel_alert_overrides') || '{}');
-    saved[alertId] = override;
+    saved[alertId] = { ...(saved[alertId] || {}), ...override };
     localStorage.setItem('sentinel_alert_overrides', JSON.stringify(saved));
   } catch (err) {
     // Ignore localStorage errors
@@ -376,6 +463,45 @@ export async function mitigateAlert(alertId) {
   };
 }
 
+export async function restoreAlert(alertId) {
+  const timestamp = new Date().toISOString();
+  const override = {
+    status: 'RESOLVED',
+    mitigationStatus: 'RESTORED',
+    resolvedAt: timestamp,
+    resolutionActionTaken: 'Incident resolved. Ingress unblocked and restored in simulation.'
+  };
+
+  // Persist locally
+  try {
+    const saved = JSON.parse(localStorage.getItem('sentinel_alert_overrides') || '{}');
+    saved[alertId] = { ...(saved[alertId] || {}), ...override };
+    localStorage.setItem('sentinel_alert_overrides', JSON.stringify(saved));
+  } catch (err) {
+    // Ignore
+  }
+
+  // Call server to persist in-memory override
+  try {
+    const res = await fetch(`${API_BASE}/alerts/${alertId}/restore`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (res.ok) {
+      return res.json();
+    }
+  } catch (err) {}
+
+  return {
+    success: true,
+    alertId,
+    updatedStatus: 'RESOLVED',
+    alert: { id: alertId, ...override }
+  };
+}
+
+export const unblockAlert = restoreAlert;
+
 export async function mitigateEnterpriseAlerts(enterpriseId) {
   const norm = normalizeEnterpriseId(enterpriseId);
   const digit = norm.replace(/\D/g, '') || '1';
@@ -387,10 +513,11 @@ export async function mitigateEnterpriseAlerts(enterpriseId) {
     const saved = JSON.parse(localStorage.getItem('sentinel_alert_overrides') || '{}');
     (alertsRes.alerts || []).forEach(a => {
       const match = normalizeEnterpriseId(a.enterpriseId || a.enterpriseName);
-      if (match === norm) {
+      if (match === norm && !isAlertResolved(a)) {
         saved[a.id] = {
+          ...(saved[a.id] || {}),
           status: 'MITIGATED · SIMULATION',
-          mitigationStatus: 'MITIGATION_SIMULATED',
+          mitigationStatus: 'SIMULATED',
           mitigatedAt: timestamp,
           mitigationActionTaken: `Simulated mitigation executed for Enterprise ${digit}. No real network configuration changed.`
         };
@@ -417,6 +544,44 @@ export async function mitigateEnterpriseAlerts(enterpriseId) {
   return { success: true, enterpriseId: norm };
 }
 
+export async function restoreEnterpriseAlerts(enterpriseId) {
+  const norm = normalizeEnterpriseId(enterpriseId);
+  const digit = norm.replace(/\D/g, '') || '1';
+  const timestamp = new Date().toISOString();
+
+  try {
+    const alertsRes = await fetchAlerts();
+    const saved = JSON.parse(localStorage.getItem('sentinel_alert_overrides') || '{}');
+    (alertsRes.alerts || []).forEach(a => {
+      const match = normalizeEnterpriseId(a.enterpriseId || a.enterpriseName);
+      if (match === norm) {
+        saved[a.id] = {
+          ...(saved[a.id] || {}),
+          status: 'RESOLVED',
+          mitigationStatus: 'RESTORED',
+          resolvedAt: timestamp,
+          resolutionActionTaken: `Incident resolved for Enterprise ${digit}. Ingress unblocked and restored in simulation.`
+        };
+      }
+    });
+    localStorage.setItem('sentinel_alert_overrides', JSON.stringify(saved));
+  } catch (err) {}
+
+  try {
+    const res = await fetch(`${API_BASE}/alerts/restore-enterprise/${norm}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (res.ok) {
+      return res.json();
+    }
+  } catch (err) {}
+
+  return { success: true, enterpriseId: norm };
+}
+
+export const unblockEnterpriseAlerts = restoreEnterpriseAlerts;
+
 export async function resetAlertSimulation(alertId) {
   if (!alertId) return;
   try {
@@ -435,6 +600,19 @@ export async function resetAlertSimulation(alertId) {
   } catch (err) {
     // Ignore server errors
   }
+}
+
+export async function resetAllAlerts() {
+  try {
+    localStorage.removeItem('sentinel_alert_overrides');
+  } catch (err) {}
+
+  try {
+    await fetch(`${API_BASE}/alerts/reset-all`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (err) {}
 }
 
 export async function fetchDetectionDemo() {
@@ -529,3 +707,20 @@ export async function clearLiveHistory() {
   return res.json();
 }
 
+
+
+export async function injectTestAttack({
+  enterpriseId = 'E3',
+  prediction = 'DrDoS_UDP',
+  groundTruth = 'DrDoS_UDP',
+  confidence = 0.92,
+  severity = 'HIGH'
+} = {}) {
+  const res = await fetch(`${API_BASE}/alerts/test-inject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enterpriseId, prediction, groundTruth, confidence, severity })
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.json();
+}
