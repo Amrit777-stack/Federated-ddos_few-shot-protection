@@ -417,6 +417,26 @@ export async function mitigateEnterpriseAlerts(enterpriseId) {
   return { success: true, enterpriseId: norm };
 }
 
+export async function resetAlertSimulation(alertId) {
+  if (!alertId) return;
+  try {
+    const saved = JSON.parse(localStorage.getItem('sentinel_alert_overrides') || '{}');
+    delete saved[alertId];
+    localStorage.setItem('sentinel_alert_overrides', JSON.stringify(saved));
+  } catch (err) {
+    // Ignore localStorage errors
+  }
+
+  try {
+    await fetch(`${API_BASE}/alerts/${alertId}/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (err) {
+    // Ignore server errors
+  }
+}
+
 export async function fetchDetectionDemo() {
   const res = await fetch(`${API_BASE}/detection/demo`);
   if (!res.ok) throw new Error('Failed to fetch detection demo samples');

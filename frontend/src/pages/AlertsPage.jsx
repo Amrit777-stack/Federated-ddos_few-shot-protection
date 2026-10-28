@@ -10,30 +10,8 @@ import {
   Check
 } from 'lucide-react';
 import StatusBadge from '../components/StatusBadge';
-import { fetchAlerts, mitigateAlert } from '../services/api';
-
-// Time formatting helpers to synchronize with system local time
-function formatEventTime(timestamp) {
-  if (!timestamp) return '—';
-  const d = new Date(timestamp);
-  if (isNaN(d.getTime())) return String(timestamp);
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
-function formatFullDateTime(timestamp) {
-  if (!timestamp) return '—';
-  const d = new Date(timestamp);
-  if (isNaN(d.getTime())) return String(timestamp);
-  const pad = (n) => String(n).padStart(2, '0');
-  const y = d.getFullYear();
-  const m = pad(d.getMonth() + 1);
-  const day = pad(d.getDate());
-  const h = pad(d.getHours());
-  const min = pad(d.getMinutes());
-  const s = pad(d.getSeconds());
-  return `${y}-${m}-${day} ${h}:${min}:${s}`;
-}
+import { fetchAlerts, mitigateAlert, isAlertMitigated, resetAlertSimulation } from '../services/api';
+import { formatEventTime, formatFullDateTime } from '../utils/time';
 
 const ATTACK_RECOMMENDED_MITIGATIONS = {
   'Syn': [
@@ -105,25 +83,45 @@ export default function AlertsPage() {
   const [mitigating, setMitigating] = useState(false);
   const [filterSeverity, setFilterSeverity] = useState('ALL');
 
+  // Background polling loop to keep incident queue synchronized with live detected attacks & mitigations
   useEffect(() => {
-    async function load() {
+    let isMounted = true;
+
+    async function load(isInitial = false) {
       try {
-        setLoading(true);
+        if (isInitial) setLoading(true);
         const res = await fetchAlerts();
         const loadedAlerts = res.alerts || [];
+        if (!isMounted) return;
+
         setAlerts(loadedAlerts);
-        if (loadedAlerts.length > 0) {
-          // Default selection to first alert, or prioritize an ACTION REQUIRED alert
-          const pending = loadedAlerts.find(a => !a.status?.includes('MITIGATED'));
-          setSelectedAlert(pending || loadedAlerts[0]);
-        }
+
+        setSelectedAlert(prev => {
+          if (prev) {
+            const updated = loadedAlerts.find(a => a.id.toLowerCase() === prev.id.toLowerCase());
+            return updated || prev;
+          }
+          if (loadedAlerts.length > 0) {
+            const pending = loadedAlerts.find(a => !isAlertMitigated(a));
+            return pending || loadedAlerts[0];
+          }
+          return null;
+        });
       } catch (err) {
         console.error('Failed to load alerts:', err);
       } finally {
-        setLoading(false);
+        if (isInitial && isMounted) {
+          setLoading(false);
+        }
       }
     }
-    load();
+
+    load(true);
+    const interval = setInterval(() => load(false), 2500);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   const handleMitigate = async (alertId) => {
@@ -148,7 +146,7 @@ export default function AlertsPage() {
       setAlerts(prev => prev.map(applyUpdate));
       setSelectedAlert(prev => prev && prev.id === alertId ? applyUpdate(prev) : prev);
 
-      // Call backend to persist override
+      // Call backend to persist override in server and localStorage
       const res = await mitigateAlert(alertId);
       if (res.success && res.alert) {
         setAlerts(prev => prev.map(a => (a.id === alertId ? res.alert : a)));
@@ -158,6 +156,18 @@ export default function AlertsPage() {
       console.error('Mitigation error:', err);
     } finally {
       setMitigating(false);
+    }
+  };
+
+  const handleResetSimulation = async (alertId) => {
+    if (!alertId) return;
+    try {
+      await resetAlertSimulation(alertId);
+      const resetStatus = (a) => a.id === alertId ? { ...a, status: 'ACTION REQUIRED', mitigationStatus: 'ACTION_REQUIRED' } : a;
+      setAlerts(prev => prev.map(resetStatus));
+      setSelectedAlert(prev => prev ? resetStatus(prev) : prev);
+    } catch (err) {
+      console.error('Reset simulation error:', err);
     }
   };
 
@@ -174,17 +184,16 @@ export default function AlertsPage() {
     ? alerts
     : alerts.filter(a => a.severity.toUpperCase() === filterSeverity);
 
-  // Compute recommended mitigations for selected alert
+  // Compute recommended mitigations for selected alert (case-insensitive key match)
   const selectedMitigations = selectedAlert
     ? (selectedAlert.recommendedResponse && selectedAlert.recommendedResponse.length > 0
         ? selectedAlert.recommendedResponse
-        : (ATTACK_RECOMMENDED_MITIGATIONS[selectedAlert.threatType] || ATTACK_RECOMMENDED_MITIGATIONS['Syn']))
+        : (ATTACK_RECOMMENDED_MITIGATIONS[selectedAlert.threatType] ||
+           Object.entries(ATTACK_RECOMMENDED_MITIGATIONS).find(([k]) => k.toLowerCase() === String(selectedAlert.threatType || '').toLowerCase())?.[1] ||
+           ATTACK_RECOMMENDED_MITIGATIONS['Syn']))
     : [];
 
-  const isMitigated = selectedAlert && (
-    selectedAlert.status?.toUpperCase().includes('MITIGATED') ||
-    selectedAlert.mitigationStatus === 'MITIGATION_SIMULATED'
-  );
+  const isMitigated = isAlertMitigated(selectedAlert);
 
   return (
     <div className="space-y-4 sm:space-y-5">
@@ -256,7 +265,7 @@ export default function AlertsPage() {
                 {filteredAlerts.map(alert => {
                   const isSelected = selectedAlert?.id === alert.id;
                   const timeFormatted = formatEventTime(alert.timestamp);
-                  const rowMitigated = alert.status?.toUpperCase().includes('MITIGATED') || alert.mitigationStatus === 'MITIGATION_SIMULATED';
+                  const rowMitigated = isAlertMitigated(alert);
 
                   return (
                     <tr
@@ -268,7 +277,12 @@ export default function AlertsPage() {
                           : 'text-[#A3A3A3] hover:bg-[#1E1E1E] hover:text-[#EDEDED]'
                       }`}
                     >
-                      <td className="py-2 px-2.5 text-[#737373] text-[11px] whitespace-nowrap">{timeFormatted}</td>
+                      <td 
+                        className="py-2 px-2.5 text-[#737373] text-[11px] whitespace-nowrap cursor-help"
+                        title={formatFullDateTime(alert.timestamp, true)}
+                      >
+                        {timeFormatted}
+                      </td>
                       <td className="py-2 px-2.5 font-medium text-[#EDEDED]">{alert.enterpriseName}</td>
                       <td className="py-2 px-2.5">
                         <span className="font-semibold text-orange-400">{alert.threatType}</span>
@@ -323,7 +337,7 @@ export default function AlertsPage() {
               <div className="space-y-2 font-mono text-xs">
                 <div className="p-2.5 rounded-sm bg-[#0D0D0D] border border-[#262626] flex items-center justify-between">
                   <span className="text-[#737373] text-[10px] block font-sans">Timestamp</span>
-                  <span className="text-xs font-mono text-orange-300">{formatFullDateTime(selectedAlert.timestamp)}</span>
+                  <span className="text-xs font-mono text-orange-300">{formatFullDateTime(selectedAlert.timestamp, true)}</span>
                 </div>
 
                 <div className="p-2.5 rounded-sm bg-[#0D0D0D] border border-[#262626]">
@@ -412,12 +426,8 @@ export default function AlertsPage() {
 
                     {/* Re-simulate option if user wants to toggle again */}
                     <button
-                      onClick={() => {
-                        const resetStatus = (a) => a.id === selectedAlert.id ? { ...a, status: 'ACTION REQUIRED', mitigationStatus: 'ACTION_REQUIRED' } : a;
-                        setAlerts(prev => prev.map(resetStatus));
-                        setSelectedAlert(prev => prev ? resetStatus(prev) : prev);
-                      }}
-                      className="text-[10px] text-[#737373] hover:text-[#A3A3A3] hover:underline block text-center pt-1 font-sans"
+                      onClick={() => handleResetSimulation(selectedAlert.id)}
+                      className="text-[10px] text-[#737373] hover:text-[#A3A3A3] hover:underline block text-center pt-1 font-sans transition-colors"
                     >
                       Reset simulation for this incident
                     </button>

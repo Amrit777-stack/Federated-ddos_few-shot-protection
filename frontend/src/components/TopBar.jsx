@@ -1,20 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Server, Clock } from 'lucide-react';
+import { formatLocalClock, getClientTimeZoneAbbr, getClientTimeZoneName } from '../utils/time';
 
 export default function TopBar() {
-  const [time, setTime] = useState('');
+  const [time, setTime] = useState(() => formatLocalClock());
+  const timeZoneAbbr = getClientTimeZoneAbbr();
+  const timeZoneName = getClientTimeZoneName();
 
   useEffect(() => {
     const update = () => {
-      const now = new Date();
-      const pad = (n) => String(n).padStart(2, '0');
-      const y = now.getFullYear();
-      const m = pad(now.getMonth() + 1);
-      const d = pad(now.getDate());
-      const h = pad(now.getHours());
-      const min = pad(now.getMinutes());
-      const s = pad(now.getSeconds());
-      setTime(`${y}-${m}-${d} ${h}:${min}:${s}`);
+      setTime(formatLocalClock());
     };
     update();
     const interval = setInterval(update, 1000);
@@ -62,9 +57,15 @@ export default function TopBar() {
         </div>
 
         {/* System Local Clock */}
-        <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-sm bg-[#141414] border border-[#262626] font-mono text-[11px]" title="System Local Time">
+        <div 
+          className="flex items-center space-x-1.5 px-2 py-0.5 rounded-sm bg-[#141414] border border-[#262626] font-mono text-[11px]" 
+          title={`Client System Time: ${timeZoneName} (${timeZoneAbbr})`}
+        >
           <Clock className="w-3 h-3 text-[#737373]" />
           <span className="text-[#D4D4D4]">{time}</span>
+          <span className="text-[10px] text-orange-400 font-semibold px-1 py-0.2 rounded-sm bg-[#1A1612] border border-orange-500/20">
+            {timeZoneAbbr}
+          </span>
         </div>
       </div>
     </header>

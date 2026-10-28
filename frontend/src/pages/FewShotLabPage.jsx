@@ -23,6 +23,7 @@ import {
   fetchFewShotLiveNext,
   getOfflineEnterprises
 } from '../services/api';
+import { formatEventTime, formatFullDateTime } from '../utils/time';
 
 const ATTACK_TO_ENTERPRISE = {
   'DrDoS_DNS': 'E1',
@@ -63,29 +64,6 @@ const ALL_ATTACK_CLASSES = [
   'UDP-lag',
   'WebDDoS'
 ];
-
-// Time formatting helpers synchronized with local SOC system time
-function formatEventTime(timestamp) {
-  if (!timestamp) return '—';
-  const d = new Date(timestamp);
-  if (isNaN(d.getTime())) return String(timestamp);
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
-function formatFullDateTime(timestamp) {
-  if (!timestamp) return '—';
-  const d = new Date(timestamp);
-  if (isNaN(d.getTime())) return String(timestamp);
-  const pad = (n) => String(n).padStart(2, '0');
-  const y = d.getFullYear();
-  const m = pad(d.getMonth() + 1);
-  const day = pad(d.getDate());
-  const h = pad(d.getHours());
-  const min = pad(d.getMinutes());
-  const s = pad(d.getSeconds());
-  return `${y}-${m}-${day} ${h}:${min}:${s}`;
-}
 
 export default function FewShotLabPage() {
   const [targetAttack, setTargetAttack] = useState('DrDoS_UDP');
@@ -877,7 +855,7 @@ export default function FewShotLabPage() {
                     </div>
                     <div className="flex justify-between text-[#EDEDED]">
                       <span className="text-[#737373] font-sans">Timestamp:</span>
-                      <span className="text-orange-400 font-mono text-[10px]">{formatFullDateTime(displayFlow.timestamp)}</span>
+                      <span className="text-orange-400 font-mono text-[10px]">{formatFullDateTime(displayFlow.timestamp, true)}</span>
                     </div>
                     <div className="flex justify-between text-[#EDEDED]">
                       <span className="text-[#737373] font-sans">Dest Port:</span>
@@ -1154,7 +1132,7 @@ export default function FewShotLabPage() {
                         }`}
                       >
                         <td className="py-1.5 px-3 text-[#737373] font-sans">{ev.index || (eventHistory.length - i)}</td>
-                        <td className="py-1.5 px-3 text-[#A3A3A3] font-mono text-[11px] whitespace-nowrap" title={formatFullDateTime(ev.timestamp)}>
+                        <td className="py-1.5 px-3 text-[#A3A3A3] font-mono text-[11px] whitespace-nowrap cursor-help" title={formatFullDateTime(ev.timestamp, true)}>
                           {formatEventTime(ev.timestamp)}
                         </td>
                         <td className="py-1.5 px-3 text-orange-400 font-medium">{ev.flow_id}</td>

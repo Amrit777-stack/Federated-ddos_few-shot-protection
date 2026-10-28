@@ -224,6 +224,18 @@ class MLServiceManager {
    * Internal recording of live event and running session statistics
    */
   _recordEvent(event) {
+    // Ensure event.timestamp is a standardized ISO-8601 UTC string for consistent cross-timezone parsing
+    if (!event.timestamp) {
+      event.timestamp = new Date().toISOString();
+    } else {
+      try {
+        const d = new Date(event.timestamp);
+        event.timestamp = isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+      } catch (e) {
+        event.timestamp = new Date().toISOString();
+      }
+    }
+
     const ent = event.enterprise_id || 'E1';
     const isEnterpriseOffline = this.offlineEnterprises.has(ent);
 

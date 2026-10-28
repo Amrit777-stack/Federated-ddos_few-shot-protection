@@ -27,29 +27,7 @@ import {
   getOfflineEnterprises,
   toggleEnterpriseStatus
 } from '../services/api';
-
-// Time formatting helpers to synchronize with system local time
-function formatEventTime(timestamp) {
-  if (!timestamp) return '—';
-  const d = new Date(timestamp);
-  if (isNaN(d.getTime())) return String(timestamp);
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
-function formatFullDateTime(timestamp) {
-  if (!timestamp) return '—';
-  const d = new Date(timestamp);
-  if (isNaN(d.getTime())) return String(timestamp);
-  const pad = (n) => String(n).padStart(2, '0');
-  const y = d.getFullYear();
-  const m = pad(d.getMonth() + 1);
-  const day = pad(d.getDate());
-  const h = pad(d.getHours());
-  const min = pad(d.getMinutes());
-  const s = pad(d.getSeconds());
-  return `${y}-${m}-${day} ${h}:${min}:${s}`;
-}
+import { formatEventTime, formatFullDateTime } from '../utils/time';
 
 export default function DetectionPage() {
   const [activeMode, setActiveMode] = useState('live');
@@ -528,7 +506,12 @@ export default function DetectionPage() {
                               : 'text-[#A3A3A3] hover:bg-[#1A1A1A] hover:text-[#EDEDED]'
                           }`}
                         >
-                          <td className="py-1.5 px-2.5 text-[#737373] text-[11px] whitespace-nowrap">{timeStr}</td>
+                          <td 
+                            className="py-1.5 px-2.5 text-[#737373] text-[11px] whitespace-nowrap cursor-help"
+                            title={formatFullDateTime(evt.timestamp, true)}
+                          >
+                            {timeStr}
+                          </td>
                           <td className="py-1.5 px-2.5 font-medium text-orange-400 text-[11px] whitespace-nowrap">{evt.event_id}</td>
                           <td className="py-1.5 px-2.5 font-sans">
                             <span className={offlineEnterprises.includes(evt.enterprise_id) ? 'line-through text-[#525252]' : 'text-[#EDEDED]'}>
@@ -591,7 +574,7 @@ export default function DetectionPage() {
                   {/* Flow Event Timestamp */}
                   <div className="p-2 rounded-sm bg-[#181818] border border-[#262626] text-[11px] font-mono flex items-center justify-between">
                     <span className="text-[#737373]">Flow Timestamp</span>
-                    <span className="text-[#EDEDED] font-semibold">{formatFullDateTime(selectedLiveEvent.timestamp)}</span>
+                    <span className="text-[#EDEDED] font-semibold">{formatFullDateTime(selectedLiveEvent.timestamp, true)}</span>
                   </div>
 
                   {/* Evaluation Result Banner */}

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const dataService = require('../services/dataService');
+const mlService = require('../services/mlService');
 
 const VALID_ATTACKS = [
   'drdos_dns',
@@ -44,6 +45,40 @@ router.get('/live/next', (req, res) => {
     }
     const timeStr = new Date(result.timestamp || Date.now()).toISOString().replace('T', ' ').substring(0, 19);
     console.log(`[${timeStr}] [FewShot Live] Flow #${result.index}/${result.total_in_pool}: ${result.flow_id} [${result.ground_truth}] -> ${result.audit} (${result.method}-${result.shots}s | Sim=${result.similarity.toFixed(4)} | τ=${result.threshold.toFixed(4)} | ${result.pipeline.step4_detection.decision})`);
+
+    // If zero-day attack was intercepted and target enterprise is online, record in Incident Alerts queue
+    if (result.is_detected && result.is_target && mlService && mlService.onAlertGenerated) {
+      const entMap = {
+        'syn': 'E3',
+        'drdos_udp': 'E3',
+        'drdos_mssql': 'E3',
+        'drdos_dns': 'E1',
+        'drdos_ldap': 'E1',
+        'drdos_ntp': 'E2',
+        'drdos_ssdp': 'E2',
+        'udp-lag': 'E2',
+        'drdos_snmp': 'E4',
+        'drdos_netbios': 'E4',
+        'tftp': 'E5',
+        'webddos': 'E5'
+      };
+      const cleanKey = String(result.attack || '').toLowerCase();
+      const entId = entMap[cleanKey] || 'E3';
+      const entNum = entId.replace('E', '');
+
+      if (!mlService.offlineEnterprises || !mlService.offlineEnterprises.has(entId)) {
+        mlService.onAlertGenerated({
+          event_id: result.flow_id,
+          timestamp: result.timestamp,
+          enterprise_id: entId,
+          enterprise_name: `Enterprise ${entNum}`,
+          prediction: result.attack,
+          severity: result.confidence_pct >= 90 ? 'CRITICAL' : 'HIGH',
+          confidence: +(result.confidence_pct / 100).toFixed(3)
+        });
+      }
+    }
+
     res.json(result);
   } catch (err) {
     console.error(`[FewShot Live Exception]`, err.message);

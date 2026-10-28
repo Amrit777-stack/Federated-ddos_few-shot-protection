@@ -2,14 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { ShieldAlert, ArrowUpRight, AlertCircle } from 'lucide-react';
 import StatusBadge from './StatusBadge';
 import { isAlertMitigated } from '../services/api';
-
-function formatEventTime(timestamp) {
-  if (!timestamp) return '';
-  const d = new Date(timestamp);
-  if (isNaN(d.getTime())) return '';
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
+import { formatEventTime, formatFullDateTime } from '../utils/time';
 
 export default function AlertFeed({ alerts = [], onSelectAlert, onViewAll }) {
   const isFirstRenderRef = useRef(true);
@@ -90,7 +83,10 @@ export default function AlertFeed({ alerts = [], onSelectAlert, onViewAll }) {
                   <div className="flex items-center space-x-1.5 min-w-0">
                     <span className="truncate">{alert.enterpriseName}</span>
                     {alert.timestamp && (
-                      <span className="font-mono text-[10px] text-[#A3A3A3]">
+                      <span 
+                        className="font-mono text-[10px] text-[#A3A3A3] cursor-help"
+                        title={formatFullDateTime(alert.timestamp, true)}
+                      >
                         • {formatEventTime(alert.timestamp)}
                       </span>
                     )}

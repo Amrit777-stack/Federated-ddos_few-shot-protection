@@ -9,9 +9,16 @@ const liveAlerts = [];
 // Register real-time alert listener from PyTorch live inference
 mlService.onAlertGenerated = (event) => {
   const alertId = `ALT-${event.event_id.replace('FLOW-', '')}`;
+  let isoTime;
+  try {
+    isoTime = event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString();
+  } catch (e) {
+    isoTime = new Date().toISOString();
+  }
+
   const newAlert = {
     id: alertId,
-    timestamp: event.timestamp,
+    timestamp: isoTime,
     enterpriseId: event.enterprise_id.toLowerCase().replace('e', 'enterprise_'),
     enterpriseName: event.enterprise_name,
     threatType: event.prediction,
@@ -55,8 +62,9 @@ router.get('/', (req, res) => {
     const combined = [...liveAlerts, ...staticAlerts];
 
     const alerts = combined.map(alt => {
-      if (alertOverrides[alt.id]) {
-        return { ...alt, ...alertOverrides[alt.id] };
+      const overrideKey = Object.keys(alertOverrides).find(k => k.toLowerCase() === alt.id.toLowerCase());
+      if (overrideKey) {
+        return { ...alt, ...alertOverrides[overrideKey] };
       }
       return alt;
     });
@@ -76,29 +84,54 @@ router.post('/:id/mitigate', (req, res) => {
   try {
     const { id } = req.params;
     const combined = [...liveAlerts, ...dataService.getAlerts()];
-    const alert = combined.find(a => a.id === id);
+    const alert = combined.find(a => a.id.toLowerCase() === String(id).toLowerCase());
 
     if (!alert) {
       return res.status(404).json({ error: 'Alert not found', alertId: id });
     }
 
+    const actualId = alert.id;
+    const timestamp = new Date().toISOString();
+
     // Apply simulated mitigation
-    alertOverrides[id] = {
+    alertOverrides[actualId] = {
       status: 'MITIGATED · SIMULATION',
       mitigationStatus: 'MITIGATION_SIMULATED',
-      mitigatedAt: new Date().toISOString(),
+      mitigatedAt: timestamp,
       mitigationActionTaken: 'Simulated mitigation executed. No real network configuration changed.'
     };
 
     res.json({
       success: true,
-      alertId: id,
+      alertId: actualId,
       message: 'Mitigation workflow executed successfully in simulation mode.',
       updatedStatus: 'MITIGATED · SIMULATION',
-      alert: { ...alert, ...alertOverrides[id] }
+      alert: { ...alert, ...alertOverrides[actualId] }
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to simulate mitigation', message: err.message });
+  }
+});
+
+// Reset simulated mitigation override for a specific alert
+router.post('/:id/reset', (req, res) => {
+  try {
+    const { id } = req.params;
+    const combined = [...liveAlerts, ...dataService.getAlerts()];
+    const alert = combined.find(a => a.id.toLowerCase() === String(id).toLowerCase());
+
+    if (alert) {
+      delete alertOverrides[alert.id];
+    }
+    delete alertOverrides[id];
+
+    res.json({
+      success: true,
+      alertId: id,
+      message: 'Incident simulation reset to ACTION REQUIRED.'
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to reset alert', message: err.message });
   }
 });
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Users, 
   RotateCw, 
@@ -28,6 +28,7 @@ import {
   toggleEnterpriseStatus
 } from '../services/api';
 import { Power } from 'lucide-react';
+import { parseDate, formatEventTime, formatFullDateTime } from '../utils/time';
 
 export default function OverviewPage({ onNavigateTab }) {
   const [data, setData] = useState(null);
@@ -39,6 +40,7 @@ export default function OverviewPage({ onNavigateTab }) {
   const [error, setError] = useState(null);
   const [mitigatingId, setMitigatingId] = useState(null);
   const [lastSyncTime, setLastSyncTime] = useState(new Date());
+  const serverClockOffsetRef = useRef(0);
 
   // Polling loop to keep homepage dynamically synchronized with live attacks and incident mitigations
   useEffect(() => {
@@ -56,7 +58,15 @@ export default function OverviewPage({ onNavigateTab }) {
 
         if (!isMounted) return;
 
-        if (overviewRes) setData(overviewRes);
+        if (overviewRes) {
+          setData(overviewRes);
+          if (overviewRes.timestamp) {
+            const serverMs = parseDate(overviewRes.timestamp)?.getTime();
+            if (serverMs) {
+              serverClockOffsetRef.current = serverMs - Date.now();
+            }
+          }
+        }
         if (alertsRes?.alerts) setAlerts(alertsRes.alerts);
         if (fewShotRes) setFewShotSummary(fewShotRes);
         if (liveRes?.events) setLiveEvents(liveRes.events);
@@ -217,7 +227,8 @@ export default function OverviewPage({ onNavigateTab }) {
     });
 
     const latestMitigatedTime = enterpriseMitigatedAlerts.reduce((latest, a) => {
-      const t = a.mitigatedAt ? new Date(a.mitigatedAt).getTime() : 0;
+      const d = parseDate(a.mitigatedAt);
+      const t = d ? d.getTime() : 0;
       return t > latest ? t : latest;
     }, 0);
 
@@ -228,16 +239,20 @@ export default function OverviewPage({ onNavigateTab }) {
     });
 
     // A live event is ONLY considered an active ongoing attack if:
-    // 1) It occurred recently (within the last 12 seconds)
+    // 1) It occurred recently (within the last 12 seconds relative to server-synchronized clock)
     // 2) It is not BENIGN
     // 3) It occurred AFTER the latest mitigation timestamp (with a 5s grace window)
-    const isLiveEventRecent = recentLiveEvent?.timestamp && 
-      (Date.now() - new Date(recentLiveEvent.timestamp).getTime() < 12000);
+    const serverNow = Date.now() + (serverClockOffsetRef.current || 0);
+    const liveEventDate = parseDate(recentLiveEvent?.timestamp);
+    const liveEventTime = liveEventDate ? liveEventDate.getTime() : 0;
+    const isLiveEventRecent = Boolean(
+      liveEventTime && (serverNow - liveEventTime >= -5000) && (serverNow - liveEventTime < 12000)
+    );
 
     const isLiveAttack = isLiveEventRecent && 
       recentLiveEvent.prediction && 
       recentLiveEvent.prediction !== 'BENIGN' &&
-      (!latestMitigatedTime || new Date(recentLiveEvent.timestamp).getTime() > (latestMitigatedTime + 5000));
+      (!latestMitigatedTime || liveEventTime > (latestMitigatedTime + 5000));
 
     const hasActiveAlert = activeAlerts.length > 0;
 
