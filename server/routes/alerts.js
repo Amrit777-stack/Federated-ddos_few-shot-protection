@@ -18,6 +18,11 @@ mlService.onAlertGenerated = (event) => {
 
   const entNum = String(event.enterprise_id || 'E1').replace(/\D/g, '') || '1';
 
+  // For a newly detected attack, remove any stale overrides for this alert or enterprise
+  delete alertOverrides[alertId];
+  delete alertOverrides[`E${entNum}`];
+  delete alertOverrides[`enterprise_${entNum}`];
+
   const newAlert = {
     id: alertId,
     timestamp: isoTime,
@@ -45,18 +50,49 @@ mlService.onAlertGenerated = (event) => {
     isSimulated: true
   };
 
-  // Prepend
+  // Prepend new alert
   liveAlerts.unshift(newAlert);
-  if (liveAlerts.length > 50) {
-    liveAlerts.pop();
-  }
+  pruneLiveAlerts();
 };
+
+function pruneLiveAlerts() {
+  // Cap liveAlerts at 200 items maximum to prevent unbounded memory growth,
+  // but NEVER evict any active ('ACTION REQUIRED') or mitigated ('MITIGATED · SIMULATION') alert.
+  // ONLY prune old 'RESOLVED' alerts.
+  // Active incidents remain active indefinitely until explicit user Mitigate or Restore!
+  while (liveAlerts.length > 200) {
+    let oldestResolvedIdx = -1;
+    for (let i = liveAlerts.length - 1; i >= 0; i--) {
+      const a = liveAlerts[i];
+      const overrideKey = Object.keys(alertOverrides).find(k => k.toLowerCase() === a.id.toLowerCase());
+      const effectiveStatus = (overrideKey && alertOverrides[overrideKey].status) || a.status;
+      if (effectiveStatus === 'RESOLVED') {
+        oldestResolvedIdx = i;
+        break;
+      }
+    }
+    if (oldestResolvedIdx !== -1) {
+      liveAlerts.splice(oldestResolvedIdx, 1);
+    } else {
+      // All items are active or mitigated; do NOT prune any active or mitigated incidents!
+      break;
+    }
+  }
+}
 
 // Register history clear listener to remove generated live alerts
 mlService.onHistoryCleared = () => {
+  // On Clear History/Reset, preserve ACTION REQUIRED and MITIGATED incidents.
+  // ONLY clear old RESOLVED alerts.
+  // Active alerts MUST remain active indefinitely until explicit user Mitigate or Restore.
+  const preserved = liveAlerts.filter(a => {
+    const overrideKey = Object.keys(alertOverrides).find(k => k.toLowerCase() === a.id.toLowerCase());
+    const effectiveStatus = (overrideKey && alertOverrides[overrideKey].status) || a.status;
+    return effectiveStatus === 'ACTION REQUIRED' || effectiveStatus === 'MITIGATED · SIMULATION';
+  });
   liveAlerts.length = 0;
-  alertOverrides = {};
-  console.log('[Alerts] Live simulated alerts and overrides cleared.');
+  liveAlerts.push(...preserved);
+  console.log('[Alerts] Live simulated history cleared. Preserved', preserved.length, 'active/mitigated incidents.');
 };
 
 router.get('/', (req, res) => {
@@ -301,10 +337,24 @@ router.post('/test-inject', (req, res) => {
     // updates session metrics, and triggers mlService.onAlertGenerated if pred !== 'BENIGN'
     mlService._recordEvent(event);
 
+    // If an attack was detected, retrieve the newly created alert
+    let createdAlert = null;
+    if (pred !== 'BENIGN') {
+      const targetIdPart = event.event_id.replace('FLOW-', '');
+      createdAlert = liveAlerts.find(a => a.id.includes(targetIdPart)) || liveAlerts[0];
+      if (createdAlert) {
+        // Ensure no stale override masks this freshly injected active alert
+        delete alertOverrides[createdAlert.id];
+        delete alertOverrides[`E${num}`];
+        delete alertOverrides[`enterprise_${num}`];
+      }
+    }
+
     res.json({
       success: true,
       message: `Injected test flow for ${entId}`,
       event,
+      alert: createdAlert,
       isAttackDetected: pred !== 'BENIGN',
       classificationCorrect: pred === gt
     });

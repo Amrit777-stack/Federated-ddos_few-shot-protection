@@ -60,15 +60,19 @@ export default function EnterprisePage() {
 
     const interval = setInterval(loadData, 2500);
     const handleStorage = (e) => {
-      if (e.key === 'sentinel_alert_overrides' || e.key === 'sentinel_offline_enterprises') {
+      if (!e || e.key === 'sentinel_alert_overrides' || e.key === 'sentinel_offline_enterprises') {
         loadData();
       }
     };
     window.addEventListener('storage', handleStorage);
+    window.addEventListener('sentinel_attack_injected', loadData);
+    window.addEventListener('sentinel_alerts_updated', loadData);
 
     return () => {
       clearInterval(interval);
       window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('sentinel_attack_injected', loadData);
+      window.removeEventListener('sentinel_alerts_updated', loadData);
     };
   }, [loadData]);
 

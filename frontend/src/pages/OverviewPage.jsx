@@ -15,6 +15,7 @@ import {
 import MetricCard from '../components/MetricCard';
 import ThreatMap from '../components/ThreatMap';
 import AlertFeed from '../components/AlertFeed';
+import StatusBadge from '../components/StatusBadge';
 import { 
   fetchOverview, 
   fetchAlerts, 
@@ -93,9 +94,20 @@ export default function OverviewPage({ onNavigateTab }) {
       load(false);
     }, 3500);
 
+    const handleSync = () => {
+      load(false);
+    };
+
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('sentinel_attack_injected', handleSync);
+    window.addEventListener('sentinel_alerts_updated', handleSync);
+
     return () => {
       isMounted = false;
       clearInterval(interval);
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('sentinel_attack_injected', handleSync);
+      window.removeEventListener('sentinel_alerts_updated', handleSync);
     };
   }, []);
 
@@ -114,26 +126,17 @@ export default function OverviewPage({ onNavigateTab }) {
     }
   };
 
-  // Quick simulated mitigation directly from the homepage inspection card
-  const handleQuickMitigate = async (alertIdOrList, enterpriseId = null) => {
-    let ids = [];
-    if (Array.isArray(alertIdOrList)) {
-      ids = alertIdOrList.filter(Boolean);
-    } else if (alertIdOrList) {
-      ids = [alertIdOrList];
-    }
-    if (!ids.length && !enterpriseId) return;
+  // Quick mitigation for an individual incident directly from the homepage inspection card
+  const handleQuickMitigate = async (alertId) => {
+    if (!alertId) return;
 
     try {
-      setMitigatingId(ids[0] || enterpriseId);
+      setMitigatingId(alertId);
       const updatedTimestamp = new Date().toISOString();
-      const normEnt = enterpriseId ? normalizeEnterpriseId(enterpriseId) : null;
 
-      // Optimistically update local alerts immediately
+      // Optimistically update ONLY this specific alert
       setAlerts(prev => prev.map(a => {
-        const matchesId = ids.includes(a.id);
-        const matchesEnt = normEnt && normalizeEnterpriseId(a.enterpriseId || a.enterpriseName) === normEnt;
-        if (matchesId || matchesEnt) {
+        if (a.id === alertId) {
           return {
             ...a,
             status: 'MITIGATED · SIMULATION',
@@ -144,15 +147,8 @@ export default function OverviewPage({ onNavigateTab }) {
         return a;
       }));
 
-      // Mitigate via batch endpoint if enterpriseId provided
-      if (enterpriseId) {
-        await mitigateEnterpriseAlerts(enterpriseId);
-      }
-
-      // Also mitigate individual alert IDs to ensure persistence
-      if (ids.length > 0) {
-        await Promise.all(ids.map(id => mitigateAlert(id).catch(err => console.error(err))));
-      }
+      // Mitigate only this individual alert ID
+      await mitigateAlert(alertId);
 
       // Re-synchronize alerts from backend
       const refreshed = await fetchAlerts().catch(() => null);
@@ -167,25 +163,16 @@ export default function OverviewPage({ onNavigateTab }) {
   };
 
   // Quick unblock / restore directly from the homepage inspection card
-  const handleQuickRestore = async (alertIdOrList, enterpriseId = null) => {
-    let ids = [];
-    if (Array.isArray(alertIdOrList)) {
-      ids = alertIdOrList.filter(Boolean);
-    } else if (alertIdOrList) {
-      ids = [alertIdOrList];
-    }
-    if (!ids.length && !enterpriseId) return;
+  const handleQuickRestore = async (alertId) => {
+    if (!alertId) return;
 
     try {
-      setMitigatingId(ids[0] || enterpriseId);
+      setMitigatingId(alertId);
       const updatedTimestamp = new Date().toISOString();
-      const normEnt = enterpriseId ? normalizeEnterpriseId(enterpriseId) : null;
 
-      // Optimistically update local alerts immediately
+      // Optimistically update ONLY this specific alert
       setAlerts(prev => prev.map(a => {
-        const matchesId = ids.includes(a.id);
-        const matchesEnt = normEnt && normalizeEnterpriseId(a.enterpriseId || a.enterpriseName) === normEnt;
-        if (matchesId || matchesEnt) {
+        if (a.id === alertId) {
           return {
             ...a,
             status: 'RESOLVED',
@@ -196,15 +183,8 @@ export default function OverviewPage({ onNavigateTab }) {
         return a;
       }));
 
-      // Restore via batch endpoint if enterpriseId provided
-      if (enterpriseId) {
-        await restoreEnterpriseAlerts(enterpriseId);
-      }
-
-      // Also restore individual alert IDs to ensure persistence
-      if (ids.length > 0) {
-        await Promise.all(ids.map(id => restoreAlert(id).catch(err => console.error(err))));
-      }
+      // Restore only this individual alert ID
+      await restoreAlert(alertId);
 
       // Re-synchronize alerts from backend
       const refreshed = await fetchAlerts().catch(() => null);
@@ -253,22 +233,17 @@ export default function OverviewPage({ onNavigateTab }) {
 
   const enrichedNodes = rawNodes.map(node => {
     const normId = node.id; // 'E1', 'E2', 'E3', etc.
-    const isOffline = offlineList.includes(normId) || node.status === 'OFFLINE';
+    const targetDigit = normalizeEnterpriseId(normId);
+    const isOffline = offlineList.includes(normId) || offlineList.includes(`E${targetDigit}`) || offlineList.includes(targetDigit) || node.status === 'OFFLINE';
 
-    // Compute independent operational IDS security state
+    // Compute independent operational IDS security state strictly from ACTIVE incidents
     const secState = getEnterpriseSecurityState(normId, alerts, isOffline);
 
-    // Check if there's an ongoing live simulated attack event within last 12s
-    const serverNow = Date.now() + (serverClockOffsetRef.current || 0);
-    const recentLiveAttack = (liveEvents || []).find(e => {
+    // Active live packet telemetry targeting this enterprise (only flagged if currently under attack)
+    const isLiveTarget = !isOffline && secState.status === 'UNDER ATTACK' && (liveEvents || []).some(e => {
       if (!e) return false;
       const target = normalizeEnterpriseId(e.enterprise_id || e.enterprise_name);
-      if (target !== normId) return false;
-      if (!e.prediction || e.prediction === 'BENIGN') return false;
-      const eventTime = parseDate(e.timestamp)?.getTime();
-      if (!eventTime) return false;
-      const elapsed = serverNow - eventTime;
-      return elapsed >= -5000 && elapsed < 12000;
+      return target === targetDigit && e.prediction && e.prediction !== 'BENIGN';
     });
 
     let status = secState.status;
@@ -276,12 +251,25 @@ export default function OverviewPage({ onNavigateTab }) {
     let riskScore = secState.riskScore;
     let activeThreat = secState.activeThreat;
 
-    // A live attack overrides to UNDER ATTACK only if the enterprise is not OFFLINE and not currently MITIGATED
-    if (recentLiveAttack && !isOffline && status === 'ONLINE') {
+    // Operational IDS state:
+    // When an attack is injected or detected, secState.status === 'UNDER ATTACK' (red).
+    // It remains red until the user explicitly clicks Mitigate (orange).
+    // Only after restore does it return to ONLINE (green).
+    if (secState.status === 'UNDER ATTACK' && !isOffline) {
       status = 'UNDER ATTACK';
       health = 'CRITICAL';
-      activeThreat = recentLiveAttack.prediction;
+      activeThreat = secState.activeThreat || 'Volumetric Attack';
       riskScore = 86;
+    } else if (secState.status === 'MITIGATED' && !isOffline) {
+      status = 'MITIGATED';
+      health = 'ELEVATED';
+      activeThreat = secState.activeThreat || 'Mitigated Protection';
+      riskScore = 32;
+    } else if (!isOffline) {
+      status = 'ONLINE';
+      health = 'HEALTHY';
+      riskScore = 12;
+      activeThreat = null;
     }
 
     return {
@@ -290,13 +278,15 @@ export default function OverviewPage({ onNavigateTab }) {
       health,
       riskScore,
       activeThreat,
+      currentAlert: secState.currentAlert,
+      allIncidents: secState.allIncidents,
       activeAlertsCount: secState.activeAlertsCount,
       activeAlerts: secState.activeAlerts,
       mitigatedAlertsCount: secState.mitigatedAlertsCount,
       mitigatedAlerts: secState.mitigatedAlerts,
       resolvedAlertsCount: secState.resolvedAlertsCount,
       resolvedAlerts: secState.resolvedAlerts,
-      isLiveTarget: Boolean(recentLiveAttack),
+      isLiveTarget,
       isOffline
     };
   });
@@ -512,15 +502,21 @@ export default function OverviewPage({ onNavigateTab }) {
                 <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
                 <span className="text-red-200 text-[11px] font-sans">
                   Active Threat: <strong className="font-mono text-white">{selectedNode.activeThreat || 'Volumetric Vector'}</strong> ({selectedNode.activeAlerts?.[0]?.id || `INCIDENT-${selectedNode.id}`}) • Action Required
+                  {selectedNode.activeAlertsCount > 1 && (
+                    <span className="ml-2 px-1.5 py-0.5 rounded-sm bg-red-900/60 text-red-300 font-mono text-[10px]">
+                      {selectedNode.activeAlertsCount} active attacks queued
+                    </span>
+                  )}
                 </span>
               </div>
               <div className="flex items-center space-x-2">
                 <button
                   disabled={mitigatingId !== null}
-                  onClick={() => handleQuickMitigate(selectedNode.activeAlerts?.map(a => a.id) || [], selectedNode.id)}
+                  onClick={() => handleQuickMitigate(selectedNode.activeAlerts?.[0]?.id)}
                   className="px-2.5 py-1 rounded-sm bg-orange-600 hover:bg-orange-500 text-white font-mono text-[11px] font-semibold flex items-center space-x-1 shadow-sm transition-all duration-150 border border-orange-500 disabled:opacity-50"
+                  title="Mitigate current active incident"
                 >
-                  {mitigatingId ? (
+                  {mitigatingId === selectedNode.activeAlerts?.[0]?.id ? (
                     <>
                       <RotateCw className="w-3 h-3 animate-spin mr-1" />
                       <span>SIMULATING...</span>
@@ -529,6 +525,24 @@ export default function OverviewPage({ onNavigateTab }) {
                     <>
                       <Play className="w-3 h-3 mr-1 fill-current" />
                       <span>SIMULATE MITIGATION</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  disabled={mitigatingId !== null}
+                  onClick={() => handleQuickRestore(selectedNode.activeAlerts?.[0]?.id)}
+                  className="px-2.5 py-1 rounded-sm bg-[#181818] hover:bg-[#222222] border border-[#2E2E2E] text-emerald-400 hover:text-emerald-300 font-mono text-[11px] font-semibold flex items-center space-x-1 transition-colors duration-150 disabled:opacity-50"
+                  title="Resolve current active incident directly"
+                >
+                  {mitigatingId === selectedNode.activeAlerts?.[0]?.id ? (
+                    <>
+                      <RotateCw className="w-3 h-3 animate-spin mr-1" />
+                      <span>RESOLVING...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-400" />
+                      <span>RESOLVE</span>
                     </>
                   )}
                 </button>
@@ -550,15 +564,21 @@ export default function OverviewPage({ onNavigateTab }) {
                 <Shield className="w-4 h-4 text-orange-400 flex-shrink-0" />
                 <span className="text-orange-200 text-[11px] font-sans">
                   🟠 Mitigated · Simulation • Rate-limiting & 50-shot exemplar filter active on {selectedNode.id}
+                  {selectedNode.mitigatedAlertsCount > 1 && (
+                    <span className="ml-2 px-1.5 py-0.5 rounded-sm bg-orange-900/60 text-orange-300 font-mono text-[10px]">
+                      {selectedNode.mitigatedAlertsCount} mitigated queued
+                    </span>
+                  )}
                 </span>
               </div>
               <div className="flex items-center space-x-2">
                 <button
                   disabled={mitigatingId !== null}
-                  onClick={() => handleQuickRestore(selectedNode.mitigatedAlerts?.map(a => a.id) || [], selectedNode.id)}
+                  onClick={() => handleQuickRestore(selectedNode.mitigatedAlerts?.[0]?.id)}
                   className="px-2.5 py-1 rounded-sm bg-[#1A1612] hover:bg-[#241D17] text-orange-300 font-mono text-[11px] font-semibold flex items-center space-x-1 shadow-sm transition-all duration-150 border border-orange-600/70 disabled:opacity-50"
+                  title="Unblock and restore current mitigated incident"
                 >
-                  {mitigatingId ? (
+                  {mitigatingId === selectedNode.mitigatedAlerts?.[0]?.id ? (
                     <>
                       <RotateCw className="w-3 h-3 animate-spin mr-1" />
                       <span>RESTORING...</span>
@@ -601,6 +621,93 @@ export default function OverviewPage({ onNavigateTab }) {
                   <span>Audit Log</span>
                   <ArrowRight className="w-3 h-3 ml-0.5 text-orange-400" />
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* Incident Queue & History for this enterprise */}
+          {selectedNode.allIncidents && selectedNode.allIncidents.length > 0 && (
+            <div className="mt-3 pt-2.5 border-t border-[#262626]">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-sans font-medium text-[#737373]">
+                  Enterprise Incidents ({selectedNode.allIncidents.length} total • {selectedNode.activeAlertsCount} active):
+                </span>
+                <span className="text-[10px] font-mono text-[#525252]">
+                  Latest active incident shown first
+                </span>
+              </div>
+              <div className="max-h-44 overflow-y-auto rounded-sm border border-[#262626] divide-y divide-[#262626]">
+                {selectedNode.allIncidents.map((inc, idx) => {
+                  const isActive = isAlertActive(inc);
+                  const isMitigated = isAlertMitigated(inc);
+                  const isCurrent = idx === 0;
+
+                  return (
+                    <div
+                      key={inc.id}
+                      className={`p-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] ${
+                        isCurrent && isActive
+                          ? 'bg-red-950/20 text-[#EDEDED]'
+                          : isCurrent && isMitigated
+                          ? 'bg-orange-950/20 text-[#EDEDED]'
+                          : 'bg-[#101010] text-[#A3A3A3]'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2">
+                        <span className="font-mono text-[10px] text-[#737373]">
+                          {formatEventTime(inc.timestamp)}
+                        </span>
+                        <span className="font-mono font-semibold text-white">
+                          {inc.threatType}
+                        </span>
+                        <span className="text-[10px] font-mono text-[#737373]">
+                          ({inc.id})
+                        </span>
+                        {isCurrent && isActive && (
+                          <span className="px-1.5 py-0.2 rounded-sm bg-red-900/60 text-red-300 font-mono text-[9px] font-bold">
+                            CURRENT ACTIVE
+                          </span>
+                        )}
+                        {isCurrent && isMitigated && (
+                          <span className="px-1.5 py-0.2 rounded-sm bg-orange-900/60 text-orange-300 font-mono text-[9px] font-bold">
+                            CURRENT MITIGATED
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <StatusBadge status={inc.status} size="xs" />
+                        {isActive && (
+                          <>
+                            <button
+                              disabled={mitigatingId !== null}
+                              onClick={() => handleQuickMitigate(inc.id)}
+                              className="px-2 py-0.5 rounded-sm bg-orange-600 hover:bg-orange-500 text-white font-mono text-[10px] font-semibold transition-all disabled:opacity-50"
+                            >
+                              Mitigate
+                            </button>
+                            <button
+                              disabled={mitigatingId !== null}
+                              onClick={() => handleQuickRestore(inc.id)}
+                              className="px-2 py-0.5 rounded-sm bg-[#181818] hover:bg-[#222222] border border-[#2E2E2E] text-emerald-400 hover:text-emerald-300 font-mono text-[10px] font-semibold transition-all disabled:opacity-50"
+                            >
+                              Resolve
+                            </button>
+                          </>
+                        )}
+                        {isMitigated && (
+                          <button
+                            disabled={mitigatingId !== null}
+                            onClick={() => handleQuickRestore(inc.id)}
+                            className="px-2 py-0.5 rounded-sm bg-[#1A1612] hover:bg-[#251D16] text-orange-300 border border-orange-600/70 font-mono text-[10px] font-semibold transition-all disabled:opacity-50"
+                          >
+                            Restore
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

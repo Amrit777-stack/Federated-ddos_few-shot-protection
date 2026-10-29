@@ -13,9 +13,10 @@ export async function fetchOverview() {
 }
 
 export function normalizeEnterpriseId(enterpriseId) {
-  if (!enterpriseId) return '';
-  const match = String(enterpriseId).match(/([1-5])/);
-  return match ? match[1] : String(enterpriseId).replace(/\\D/g, '');
+  if (enterpriseId === null || enterpriseId === undefined) return '';
+  const str = String(enterpriseId).trim();
+  const match = str.match(/([1-5])/);
+  return match ? match[1] : str.replace(/\D/g, '');
 }
 
 // Enterprise Online / Offline State Management
@@ -354,6 +355,14 @@ export function getEnterpriseSecurityState(normId, allAlerts = [], isOffline = f
     return alertDigit === targetDigit;
   });
 
+  // Sort chronologically newest first
+  entAlerts.sort((a, b) => {
+    const timeA = new Date(a.timestamp || 0).getTime();
+    const timeB = new Date(b.timestamp || 0).getTime();
+    if (timeA !== timeB) return timeB - timeA;
+    return String(b.id || '').localeCompare(String(a.id || ''));
+  });
+
   const activeAlerts = entAlerts.filter(isAlertActive);
   const mitigatedAlerts = entAlerts.filter(isAlertMitigated);
   const resolvedAlerts = entAlerts.filter(isAlertResolved);
@@ -362,20 +371,24 @@ export function getEnterpriseSecurityState(normId, allAlerts = [], isOffline = f
   let health = 'HEALTHY';
   let riskScore = 14;
   let activeThreat = null;
+  let currentAlert = null;
 
   if (activeAlerts.length > 0) {
     status = 'UNDER ATTACK';
     health = 'CRITICAL';
+    currentAlert = activeAlerts[0];
     activeThreat = activeAlerts[0].threatType;
     riskScore = activeAlerts[0].severity === 'CRITICAL' ? 92 : 78;
   } else if (mitigatedAlerts.length > 0) {
     status = 'MITIGATED';
     health = 'ELEVATED';
+    currentAlert = mitigatedAlerts[0];
     activeThreat = mitigatedAlerts[0].threatType;
     riskScore = 32;
   } else {
     status = 'ONLINE';
     health = 'HEALTHY';
+    currentAlert = resolvedAlerts[0] || null;
     riskScore = 12;
     activeThreat = null;
   }
@@ -385,6 +398,8 @@ export function getEnterpriseSecurityState(normId, allAlerts = [], isOffline = f
     health,
     riskScore,
     activeThreat,
+    currentAlert,
+    allIncidents: entAlerts,
     activeAlertsCount: activeAlerts.length,
     activeAlerts,
     mitigatedAlertsCount: mitigatedAlerts.length,
@@ -406,16 +421,52 @@ export async function fetchAlerts() {
     console.warn('[API] Could not fetch remote alerts, using fallback.');
   }
 
+  // Load persistent active injected alerts from localStorage to survive refreshes & stream cycles
+  try {
+    const localActive = JSON.parse(localStorage.getItem('sentinel_active_injected_alerts') || '[]');
+    if (Array.isArray(localActive) && localActive.length > 0) {
+      localActive.forEach(localAlt => {
+        if (!localAlt || !localAlt.id) return;
+        const exists = serverAlerts.some(sa => sa.id.toLowerCase() === localAlt.id.toLowerCase());
+        if (!exists) {
+          serverAlerts.unshift(localAlt);
+        }
+      });
+    }
+  } catch (err) {}
+
   // Merge client-side localStorage overrides so simulated mitigations and resolutions persist
   try {
     const savedOverrides = JSON.parse(localStorage.getItem('sentinel_alert_overrides') || '{}');
+    let overridesModified = false;
     if (Object.keys(savedOverrides).length > 0) {
       serverAlerts = serverAlerts.map(a => {
-        if (savedOverrides[a.id]) {
-          return { ...a, ...savedOverrides[a.id] };
+        const override = savedOverrides[a.id];
+
+        // Prevent stale sentinel_alert_overrides from overriding a newly created ACTIVE alert!
+        if (a.status === 'ACTION REQUIRED') {
+          const norm = normalizeEnterpriseId(a.enterpriseId || a.enterpriseName);
+          if (norm && (savedOverrides[`E${norm}`] || savedOverrides[`enterprise_${norm}`])) {
+            delete savedOverrides[`E${norm}`];
+            delete savedOverrides[`enterprise_${norm}`];
+            overridesModified = true;
+          }
+          if (override && override.status === 'RESOLVED') {
+            delete savedOverrides[a.id];
+            overridesModified = true;
+            return a;
+          }
+        }
+
+        if (override) {
+          return { ...a, ...override };
         }
         return a;
       });
+
+      if (overridesModified) {
+        localStorage.setItem('sentinel_alert_overrides', JSON.stringify(savedOverrides));
+      }
     }
   } catch (err) {
     // Ignore localStorage parse errors
@@ -438,6 +489,15 @@ export async function mitigateAlert(alertId) {
     const saved = JSON.parse(localStorage.getItem('sentinel_alert_overrides') || '{}');
     saved[alertId] = { ...(saved[alertId] || {}), ...override };
     localStorage.setItem('sentinel_alert_overrides', JSON.stringify(saved));
+
+    const localActive = JSON.parse(localStorage.getItem('sentinel_active_injected_alerts') || '[]');
+    const updated = localActive.map(a => a.id === alertId ? { ...a, ...override } : a);
+    localStorage.setItem('sentinel_active_injected_alerts', JSON.stringify(updated));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('sentinel_alerts_updated'));
+      window.dispatchEvent(new Event('storage'));
+    }
   } catch (err) {
     // Ignore localStorage errors
   }
@@ -477,6 +537,15 @@ export async function restoreAlert(alertId) {
     const saved = JSON.parse(localStorage.getItem('sentinel_alert_overrides') || '{}');
     saved[alertId] = { ...(saved[alertId] || {}), ...override };
     localStorage.setItem('sentinel_alert_overrides', JSON.stringify(saved));
+
+    const localActive = JSON.parse(localStorage.getItem('sentinel_active_injected_alerts') || '[]');
+    const updated = localActive.filter(a => a.id !== alertId);
+    localStorage.setItem('sentinel_active_injected_alerts', JSON.stringify(updated));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('sentinel_alerts_updated'));
+      window.dispatchEvent(new Event('storage'));
+    }
   } catch (err) {
     // Ignore
   }
@@ -524,6 +593,26 @@ export async function mitigateEnterpriseAlerts(enterpriseId) {
       }
     });
     localStorage.setItem('sentinel_alert_overrides', JSON.stringify(saved));
+
+    const localActive = JSON.parse(localStorage.getItem('sentinel_active_injected_alerts') || '[]');
+    const updatedActive = localActive.map(a => {
+      const match = normalizeEnterpriseId(a.enterpriseId || a.enterpriseName);
+      if (match === norm && !isAlertResolved(a)) {
+        return {
+          ...a,
+          status: 'MITIGATED · SIMULATION',
+          mitigationStatus: 'SIMULATED',
+          mitigatedAt: timestamp
+        };
+      }
+      return a;
+    });
+    localStorage.setItem('sentinel_active_injected_alerts', JSON.stringify(updatedActive));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('sentinel_alerts_updated'));
+      window.dispatchEvent(new Event('storage'));
+    }
   } catch (err) {
     // Ignore
   }
@@ -565,6 +654,18 @@ export async function restoreEnterpriseAlerts(enterpriseId) {
       }
     });
     localStorage.setItem('sentinel_alert_overrides', JSON.stringify(saved));
+
+    const localActive = JSON.parse(localStorage.getItem('sentinel_active_injected_alerts') || '[]');
+    const updatedActive = localActive.filter(a => {
+      const match = normalizeEnterpriseId(a.enterpriseId || a.enterpriseName);
+      return match !== norm;
+    });
+    localStorage.setItem('sentinel_active_injected_alerts', JSON.stringify(updatedActive));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('sentinel_alerts_updated'));
+      window.dispatchEvent(new Event('storage'));
+    }
   } catch (err) {}
 
   try {
@@ -588,6 +689,11 @@ export async function resetAlertSimulation(alertId) {
     const saved = JSON.parse(localStorage.getItem('sentinel_alert_overrides') || '{}');
     delete saved[alertId];
     localStorage.setItem('sentinel_alert_overrides', JSON.stringify(saved));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('sentinel_alerts_updated'));
+      window.dispatchEvent(new Event('storage'));
+    }
   } catch (err) {
     // Ignore localStorage errors
   }
@@ -605,6 +711,7 @@ export async function resetAlertSimulation(alertId) {
 export async function resetAllAlerts() {
   try {
     localStorage.removeItem('sentinel_alert_overrides');
+    localStorage.removeItem('sentinel_active_injected_alerts');
   } catch (err) {}
 
   try {
@@ -722,5 +829,47 @@ export async function injectTestAttack({
     body: JSON.stringify({ enterpriseId, prediction, groundTruth, confidence, severity })
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return await res.json();
+  const data = await res.json();
+
+  if (prediction !== 'BENIGN') {
+    const norm = normalizeEnterpriseId(enterpriseId);
+    const alertId = data.alert?.id || `ALT-${(data.event?.event_id || 'TEST-' + Date.now()).replace('FLOW-', '')}`;
+    const newAlert = data.alert || {
+      id: alertId,
+      timestamp: data.event?.timestamp || new Date().toISOString(),
+      enterpriseId: `enterprise_${norm}`,
+      enterpriseName: `Enterprise ${norm}`,
+      threatType: prediction,
+      category: `Model Detected Vector (${prediction})`,
+      severity: severity || 'HIGH',
+      confidence: confidence || 0.92,
+      status: 'ACTION REQUIRED',
+      mitigationStatus: 'ACTION_REQUIRED',
+      tier: 'Tier 1 (Global 12-Class Head)',
+      groundTruth: groundTruth,
+      isSimulated: true
+    };
+
+    try {
+      const localActive = JSON.parse(localStorage.getItem('sentinel_active_injected_alerts') || '[]');
+      const filtered = localActive.filter(a => a.id !== newAlert.id);
+      filtered.unshift(newAlert);
+      localStorage.setItem('sentinel_active_injected_alerts', JSON.stringify(filtered));
+
+      // Clear any conflicting overrides for this specific new alert
+      const saved = JSON.parse(localStorage.getItem('sentinel_alert_overrides') || '{}');
+      delete saved[newAlert.id];
+      delete saved[alertId];
+      delete saved[`E${norm}`];
+      delete saved[`enterprise_${norm}`];
+      localStorage.setItem('sentinel_alert_overrides', JSON.stringify(saved));
+    } catch (e) {}
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('sentinel_attack_injected', { detail: data }));
+    window.dispatchEvent(new CustomEvent('sentinel_alerts_updated'));
+    window.dispatchEvent(new Event('storage'));
+  }
+  return data;
 }

@@ -513,68 +513,7 @@ export default function DetectionPage() {
           </div>
         </div>
 
-        {/* Live Threat Injection & Verification Sandbox Controls */}
-        <div className="pt-2 border-t border-[#262626] space-y-1.5 text-xs font-sans">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Zap className="w-3.5 h-3.5 text-orange-400" />
-              <span className="text-[#EDEDED] font-semibold text-xs">Simulated Threat Injection Controls:</span>
-              <span className="text-[11px] text-[#737373] font-mono hidden md:inline">(Instant live validation of independent SOC detection & classification)</span>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              onClick={() => handleInjectScenario('E3', 'DrDoS_UDP', 'DrDoS_UDP')}
-              disabled={actionLoading}
-              className="px-2.5 py-1 rounded-sm bg-red-950/40 border border-red-700/50 hover:bg-red-900/60 active:scale-[0.98] text-red-200 text-[11px] font-sans font-medium flex items-center space-x-1.5 transition-all"
-              title="Test A: Attack E3 -> E3 becomes RED (Under Attack)"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-live-pulse" />
-              <span>Attack E3 (DrDoS_UDP)</span>
-            </button>
-
-            <button
-              onClick={() => handleInjectScenario('E1', 'DrDoS_DNS', 'DrDoS_DNS')}
-              disabled={actionLoading}
-              className="px-2.5 py-1 rounded-sm bg-red-950/40 border border-red-700/50 hover:bg-red-900/60 active:scale-[0.98] text-red-200 text-[11px] font-sans font-medium flex items-center space-x-1.5 transition-all"
-              title="Test C: Attack E1 -> E1 and E3 both turn RED independently"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-live-pulse" />
-              <span>Attack E1 (DrDoS_DNS)</span>
-            </button>
-
-            <button
-              onClick={() => handleInjectScenario('E3', 'Syn', 'DrDoS_UDP')}
-              disabled={actionLoading}
-              className="px-2.5 py-1 rounded-sm bg-amber-950/40 border border-amber-700/50 hover:bg-amber-900/60 active:scale-[0.98] text-amber-200 text-[11px] font-sans font-medium flex items-center space-x-1.5 transition-all"
-              title="Test G: GT DrDoS_UDP + Pred Syn -> E3 turns RED + audit flags MISCLASSIFIED"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-              <span>GT: DrDoS_UDP | Pred: Syn (Misclassified)</span>
-            </button>
-
-            <button
-              onClick={() => handleInjectScenario('E3', 'BENIGN', 'DrDoS_UDP')}
-              disabled={actionLoading}
-              className="px-2.5 py-1 rounded-sm bg-emerald-950/40 border border-emerald-700/50 hover:bg-emerald-900/60 active:scale-[0.98] text-emerald-200 text-[11px] font-sans font-medium flex items-center space-x-1.5 transition-all"
-              title="Test H: GT DrDoS_UDP + Pred BENIGN -> E3 stays GREEN from IDS perspective (Missed FN)"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-              <span>GT: DrDoS_UDP | Pred: BENIGN (Missed FN)</span>
-            </button>
-
-            <button
-              onClick={() => handleInjectScenario('E3', 'Syn', 'BENIGN')}
-              disabled={actionLoading}
-              className="px-2.5 py-1 rounded-sm bg-red-950/40 border border-red-700/50 hover:bg-red-900/60 active:scale-[0.98] text-red-200 text-[11px] font-sans font-medium flex items-center space-x-1.5 transition-all"
-              title="Test I: GT BENIGN + Pred Syn -> E3 turns RED (False Positive)"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
-              <span>GT: BENIGN | Pred: Syn (False Positive)</span>
-            </button>
-          </div>
-        </div>
+        
 
         {/* Live Session Metrics Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-1">

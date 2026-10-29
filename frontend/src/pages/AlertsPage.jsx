@@ -105,15 +105,24 @@ export default function AlertsPage() {
         setAlerts(loadedAlerts);
 
         setSelectedAlert(prev => {
+          const activeAlert = loadedAlerts.find(a => isAlertActive(a));
+          const mitigatedAlert = loadedAlerts.find(a => isAlertMitigated(a));
+          const resolvedAlert = loadedAlerts.find(a => isAlertResolved(a));
+
           if (prev) {
             const updated = loadedAlerts.find(a => a.id.toLowerCase() === prev.id.toLowerCase());
-            return updated || prev;
+            if (updated) {
+              // If previously selected alert is now RESOLVED, prioritize any existing ACTIVE or MITIGATED alert
+              if (isAlertResolved(updated)) {
+                if (activeAlert) return activeAlert;
+                if (mitigatedAlert) return mitigatedAlert;
+              }
+              return updated;
+            }
           }
-          if (loadedAlerts.length > 0) {
-            const pending = loadedAlerts.find(a => !isAlertMitigated(a));
-            return pending || loadedAlerts[0];
-          }
-          return null;
+
+          // Prioritize: ACTIVE → MITIGATED → RESOLVED
+          return activeAlert || mitigatedAlert || resolvedAlert || loadedAlerts[0] || null;
         });
       } catch (err) {
         console.error('Failed to load alerts:', err);
@@ -126,9 +135,24 @@ export default function AlertsPage() {
 
     load(true);
     const interval = setInterval(() => load(false), 2500);
+
+    const handleSync = (e) => {
+      load(false);
+      if (e?.detail?.alert) {
+        setSelectedAlert(e.detail.alert);
+      }
+    };
+
+    window.addEventListener('sentinel_attack_injected', handleSync);
+    window.addEventListener('sentinel_alerts_updated', handleSync);
+    window.addEventListener('storage', handleSync);
+
     return () => {
       isMounted = false;
       clearInterval(interval);
+      window.removeEventListener('sentinel_attack_injected', handleSync);
+      window.removeEventListener('sentinel_alerts_updated', handleSync);
+      window.removeEventListener('storage', handleSync);
     };
   }, []);
 
@@ -385,7 +409,7 @@ export default function AlertsPage() {
                   </span>
                 </div>
                 <StatusBadge 
-                  status={isMitigated ? 'MITIGATED · SIMULATION' : 'ACTION REQUIRED'} 
+                  status={isResolved ? 'RESOLVED' : isMitigated ? 'MITIGATED · SIMULATION' : 'ACTION REQUIRED'} 
                   size="xs" 
                 />
               </div>

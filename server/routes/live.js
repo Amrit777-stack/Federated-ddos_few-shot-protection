@@ -98,7 +98,7 @@ router.post('/clear', async (req, res) => {
 // POST /api/live/reset-metrics
 router.post('/reset-metrics', async (req, res) => {
   try {
-    const result = await mlService.clearHistory();
+    const result = mlService.resetSessionMetrics();
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: 'Failed to reset metrics', message: err.message });
